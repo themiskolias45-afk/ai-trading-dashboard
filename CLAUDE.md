@@ -41,10 +41,31 @@ At the start of every interactive session:
    python tasks/rag_query.py "your question" --source brain
    ```
 
-   313 memories, 1699 chunks, local (chromadb + all-MiniLM-L6-v2, nothing leaves the box).
-   Rebuild after writing a memory: `python tasks/rag_index.py --source brain`.
-   **Run it before concluding something is not recorded.** On 2026-09-01 five measured
-   findings turned out to have sat on the other box for a month, unknown here.
+   415 memories, 2463 chunks on the laptop (chromadb + all-MiniLM-L6-v2, nothing leaves
+   the box). Counts measured 2026-09-11; treat them as approximate and trust the
+   indexer's own output line.
+
+   After writing a memory: `python tasks/rag_index.py --source brain --refresh-changed`.
+   **The flag is not optional and it is the SAFE one.** Chunk ids are path-based, so
+   without it an EDITED memory keeps serving the sentence it used to say — measured
+   2026-09-11: a plain run reported `0 refreshed` on a file edited one minute earlier,
+   and the flagged run then found **17 refreshed, 141 superseded** sitting in the index.
+   It cannot lose anything: refresh is `collection.update()` (same id, new text) which
+   removes no row, and chunks orphaned by a memory getting shorter are MARKED
+   `superseded`, never deleted (`rag_index.py:459-514`). The chunk count cannot fall.
+
+   **Never `--rebuild` to fix this.** That is the only path that calls
+   `delete_collection()` (`rag_index.py:484`), it is not atomic, and a run killed inside
+   that window left this index EMPTY on 2026-09-01 while the next run printed a
+   healthy-looking total. Use it only deliberately, and only if the index has actually
+   shrunk. The `.md` files ARE the memory; this index is derived and rebuildable.
+
+   At session end `tasks/hooks/session-stop.ps1` runs `tasks/memory_index_guard.py`,
+   which already passes the flag and shouts if the index shrinks — so on the laptop this
+   is enforced, not remembered. **Neither file exists on the VPS**, measured 2026-09-11.
+
+   **Run the query before concluding something is not recorded.** On 2026-09-01 five
+   measured findings turned out to have sat on the other box for a month, unknown here.
 
 2b. Call `mcp__memory__search_nodes` **once per term**, with the SINGLE words `lesson`, then `fix`,
    then `trade`, then `decision`, then `build`. These are lessons, decisions, and build records
