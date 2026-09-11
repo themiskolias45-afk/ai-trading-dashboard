@@ -255,6 +255,38 @@ function buildMedic() {
   };
 }
 
+/**
+ * Write JSON so a reader can never see half of it.
+ *
+ * WHY. fs.writeFileSync TRUNCATES and then writes. The dashboard polls these two files
+ * on a timer, and a poll landing inside that window reads a partial file, json() throws,
+ * and the cell reports a failure that is really a race. Observed 2026-09-11: the strip's
+ * Coverage cell read "unreachable" while the file on disk was present, 1546 bytes and
+ * valid. lab_shadow.cjs already writes its panel this way; this publisher did not, which
+ * is my bug, not the page's.
+ *
+ * THE EPERM FALLBACK IS NOT DECORATION. The rename replaces an EXISTING file, and that
+ * needs DELETE on the target. Measured on the VPS the same day: BUILTIN\Users held only
+ * ReadAndExecute on dashboard/lab-shadow.json, so a Limited-token task could create the
+ * .tmp and not replace the target — EPERM, four days of an invisible rc=1. If the rename
+ * is refused here, fall back to a direct write and SAY SO: a health publisher that
+ * silently stops publishing is the exact failure these two files exist to surface.
+ */
+function writeJsonAtomic(target, value) {
+  const text = JSON.stringify(value, null, 2);
+  const tmp = target + '.tmp';
+  try {
+    fs.writeFileSync(tmp, text, 'utf8');
+    fs.renameSync(tmp, target);
+  } catch (err) {
+    try { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); } catch (e) { /* best effort */ }
+    fs.writeFileSync(target, text, 'utf8');   // non-atomic, but published beats missing
+    console.log('  NOTE: atomic rename refused (' + err.code + ') — wrote ' +
+      path.basename(target) + ' directly. A reader could catch a partial file; ' +
+      'grant the publishing account modify rights on it to restore the atomic write.');
+  }
+}
+
 function selftest() {
   let failed = 0;
   const ok = (n, c, x) => { if (!c) { failed++; console.log('  FAIL  ' + n + (x ? '  ' + x : '')); } else console.log('  ok    ' + n); };
