@@ -192,6 +192,34 @@ const MEDIC_OUT = path.join(ROOT, 'dashboard', 'medic-ledger.json');
 const OPEN_ACTIONS = ['escalated'];          // handed to the user, nobody else can close it
 const CLOSED_ACTIONS = ['fixed', 'accepted', 'wontfix'];
 
+/* The medic's own CURRENT view, when medic_loop.ps1 has left one.
+   THE LEDGER ALONE OVER-REPORTS, measured 2026-09-11: it showed 7 escalated when the
+   doctor was reporting 3. The other four were real decisions on findings the doctor NO
+   LONGER REPORTS - medic.cjs calls them CLEARED and lists them separately. Counting the
+   ledger's last action per id therefore counts problems that no longer exist, which is
+   the same over-report that makes a light worth ignoring.
+   Preferred, not required: medic.cjs --json runs the doctor across BOTH boxes and is far
+   too expensive to invoke from a publisher, so medic_loop.ps1 persists its result and
+   this reads it. If it is missing or stale the ledger is used and the payload SAYS which
+   basis it used, so an over-count can never be silent again. */
+const MEDIC_CURRENT = path.join(ROOT, 'dashboard', 'medic-current.json');
+const MEDIC_CURRENT_STALE_HOURS = 13;   // medic_loop runs PT4H on both boxes
+
+function readMedicCurrent() {
+  if (!fs.existsSync(MEDIC_CURRENT)) return null;
+  try {
+    const d = JSON.parse(fs.readFileSync(MEDIC_CURRENT, 'utf8'));
+    if (!d || !Array.isArray(d.handled)) return null;
+    const at = Date.parse(d.generatedAt || d.doctorGeneratedAt || '');
+    if (!Number.isFinite(at)) return null;
+    const ageHours = (Date.now() - at) / 3600000;
+    if (ageHours > MEDIC_CURRENT_STALE_HOURS) return null;
+    return { data: d, ageHours: Number(ageHours.toFixed(2)) };
+  } catch (e) {
+    return null;
+  }
+}
+
 function buildMedic() {
   if (!fs.existsSync(MEDIC_LEDGER)) {
     return {
