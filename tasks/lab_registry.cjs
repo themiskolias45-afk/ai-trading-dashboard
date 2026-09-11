@@ -68,15 +68,61 @@ function familyOf(spec) {
   return [spec.strategy, spec.symbol, spec.timeframe].join('|');
 }
 
+/**
+ * MEMOISED ON THE FILE'S OWN STAT, and that is the whole point.
+ *
+ * WHY. This re-read and re-parsed the entire registry on EVERY call, and the callers
+ * call it per candidate: lab_promote's judge() invokes trialsFor() once for every
+ * report it scans, and plateau() -> siblings() adds more on top. That makes the scan
+ * O(N x N) — N reports each paying for a full parse of an N-row file — in a registry
+ * that grows by ~384 rows a day and is never pruned.
+ *
+ * MEASURED 2026-09-11, both boxes:
+ *     laptop  6,571 rows / 4.57 MB — one readAll 44.0 ms — 6,561 reports — scan 751 s
+ *     VPS     7,246 rows / 5.05 MB — one readAll 67.6 ms — 7,246 reports — scan ~1,274 s
+ * The VPS scan had outgrown lab_drain's 960 s cap AND the task's own PT20M kill, so
+ * promotion there was stopped mid-scan 19 times in one day and staged nothing. No cap
+ * value could have fixed that: the work itself exceeded the task's hard limit. The
+ * laptop was ~2 days from the same wall on the same growth rate.
+ *
+ * THE KEY IS (mtimeMs, size), NOT A BOOLEAN. lab_registry is required by the
+ * long-lived server (server/index.js calls plateau()), and lab_generate/lab_run call
+ * register() mid-process. A cache that never invalidated would serve them stale rows
+ * — a correctness bug traded for a speed win, which is not a trade this project makes.
+ * Keying on the file's own stat means any append invalidates it automatically: the
+ * registry is APPEND ONLY (see the header), so every write strictly increases size.
+ *
+ * IT RETURNS A COPY OF THE ARRAY. Callers get their own array to sort or splice
+ * without corrupting the cache for everybody else. Only the array is copied, not the
+ * rows — that is a pointer copy of a few thousand entries, microseconds against the
+ * 44-68 ms parse it replaces. The rows themselves are shared and must be treated as
+ * read-only; no caller mutates one today.
+ */
+let _cacheKey = null;
+let _cacheRows = null;
+
 function readAll() {
-  if (!fs.existsSync(REGISTRY)) return [];
+  if (!fs.existsSync(REGISTRY)) { _cacheKey = null; _cacheRows = null; return []; }
+
+  let key;
+  try {
+    const st = fs.statSync(REGISTRY);
+    key = st.mtimeMs + ':' + st.size;
+  } catch (e) {
+    key = null;   // cannot stat — fall through and re-read rather than trust a cache
+  }
+
+  if (key !== null && key === _cacheKey && _cacheRows) return _cacheRows.slice();
+
   const out = [];
   for (const line of fs.readFileSync(REGISTRY, 'utf8').split('\n')) {
     const s = line.trim();
     if (!s) continue;
     try { out.push(JSON.parse(s)); } catch (e) { /* a torn line must not kill the read */ }
   }
-  return out;
+
+  if (key !== null) { _cacheKey = key; _cacheRows = out; }
+  return out.slice();
 }
 
 /**
