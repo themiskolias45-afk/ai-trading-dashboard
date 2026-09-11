@@ -373,6 +373,23 @@
        carries SEVEN cells since Fleet and Broker Feed were added, so it wrapped 5 + 2 and
        left two cells stretched across a ragged second row. Track count now follows cell
        count, which also means adding an eighth needs no CSS change. */
+    /* The Book. Same grid convention as the trust strip so the page reads as one
+       system, but money gets its own panel ABOVE the tickers rather than a cell in a
+       health row - the research is unanimous that the primary metric leads. */
+    .book-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:1px;
+                background:var(--border); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+    .book-cell { background:var(--panel,#151a23); padding:10px 12px; }
+    .book-label { font-size:.58rem; color:var(--muted); letter-spacing:.06em; text-transform:uppercase; }
+    .book-value { font-size:1.05rem; font-weight:700; margin-top:3px; font-variant-numeric:tabular-nums; }
+    .book-note { font-size:.58rem; color:var(--muted); margin-top:2px; }
+    /* Green gain, red loss. The research calls this convention non-negotiable and says
+       deviating from it breaks trust immediately - so it is a class, not an inline choice. */
+    .bk-up   { color:var(--green,#22c55e); }
+    .bk-down { color:var(--red,#ef4444); }
+    .bk-flat { color:var(--text,#e6edf3); }
+    .bk-idle { color:var(--muted); }
+    @media(max-width:640px){ .book-row{ grid-template-columns:repeat(2,1fr); } }
+
     .trust-strip {
       display:grid; grid-template-columns:repeat(auto-fit,minmax(148px,1fr)); gap:1px;
       background:var(--border); border:1px solid var(--border);
