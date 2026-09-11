@@ -258,3 +258,17 @@ dashboard/medic-ledger.json
 
 # Per-box: the medic doctor view for THIS box, written by tasks/medic_loop.ps1.
 dashboard/medic-current.json
+
+# SUBSCRIBER EMAIL ADDRESSES — personal data, must never reach GitHub.
+#
+# Appended by POST /api/waitlist (server/index.js:11336). The repo has a public
+# remote and pull.bat:5 runs `git add -A`, so without this line the FIRST signup
+# would be committed and pushed automatically — the same `git add -A` sweep that
+# put 851 generated files into a commit on 2026-09-06, except these are other
+# people's email addresses and a push cannot be taken back.
+#
+# Written while the file does not yet exist (0 signups), which is the only moment
+# this is free: git does not untrack a file because of a new ignore rule, so once
+# one address is committed the line above stops helping.
+tasks/waitlist.jsonl
+tasks/waitlist.jsonl.*
