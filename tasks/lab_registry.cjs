@@ -132,9 +132,59 @@ function readAll() {
  * Returns at least 1: a single trial is still a trial, and expectedMaxSharpe treats
  * trials <= 1 as no deflation, which is the correct behaviour for a first look.
  */
+/**
+ * THE FAMILY INDEX — one pass over the registry per cache generation, instead of one
+ * pass per question asked of it.
+ *
+ * WHY THIS EXISTS AND THE readAll CACHE ALONE WAS NOT ENOUGH. Caching the PARSE made
+ * each walk cheap but left the walk itself: trialsFor() is called once per report by
+ * lab_promote's judge(), and each call scanned every row. Measured 2026-09-11 on the
+ * laptop, after the parse cache and before this: 6,569 reports x 6,579 rows is ~43
+ * million row-visits and the dry-run still took 627 s against ~751 s before. The cost
+ * was never the read, it was the O(N x N).
+ *
+ * Building the same Map ONCE per generation makes trialsFor and siblings O(1) lookups
+ * into it. It is keyed on _cacheKey — the registry file's own (mtimeMs, size) — so it
+ * invalidates on exactly the same event the row cache does, and for the same reason:
+ * the long-lived server holds this module, and lab_generate/lab_run append mid-process.
+ *
+ * IT IS BUILT TO MATCH THE OLD LOOPS EXACTLY, not to improve on them. Rows are folded
+ * in FILE ORDER with last-occurrence-wins, because that is what `bySpec.set()` did;
+ * rows with no family or no specHash are skipped, because that is what the `if` did.
+ * Equivalence against the pre-change implementation was verified over every family in
+ * the live registry before this shipped, not reasoned about.
+ */
+let _indexKey = null;
+let _famIndex = null;
+
+function familyIndex() {
+  readAll();                                  // populates _cacheKey / _cacheRows
+  if (_cacheKey === null || !_cacheRows) return null;   // un-stattable: caller falls back
+  if (_indexKey === _cacheKey && _famIndex) return _famIndex;
+
+  const idx = new Map();
+  for (const row of _cacheRows) {
+    if (!row || !row.family || !row.specHash) continue;
+    let m = idx.get(row.family);
+    if (!m) { m = new Map(); idx.set(row.family, m); }
+    m.set(row.specHash, row);                 // last occurrence wins, as before
+  }
+  _indexKey = _cacheKey;
+  _famIndex = idx;
+  return _famIndex;
+}
+
 function trialsFor(spec) {
   const fam = familyOf(spec);
   const hash = specHash(spec);
+
+  const idx = familyIndex();
+  if (idx) {
+    const m = idx.get(fam);
+    if (!m) return 1;                         // no rows in this family; the pending run is trial 1
+    return m.size + (m.has(hash) ? 0 : 1);
+  }
+
   const seen = new Set();
   for (const row of readAll()) {
     if (row && row.family === fam && row.specHash) seen.add(row.specHash);
@@ -146,6 +196,14 @@ function trialsFor(spec) {
 /** Every distinct spec already tried in this family, newest run first. */
 function siblings(spec) {
   const fam = familyOf(spec);
+
+  const idx = familyIndex();
+  if (idx) {
+    const m = idx.get(fam);
+    if (!m) return [];
+    return [...m.values()].sort((a, b) => String(b.ts).localeCompare(String(a.ts)));
+  }
+
   const bySpec = new Map();
   for (const row of readAll()) {
     if (row && row.family === fam && row.specHash) bySpec.set(row.specHash, row);
