@@ -253,6 +253,28 @@ function main() {
   // Failure here is REPORTED AND NON-FATAL. The files are already copied by this point,
   // so a failed re-index means "searchable later", not "lost" -- exiting non-zero would
   // make a nightly look broken over a recoverable step.
+  //
+  // --refresh-changed, AND IT IS THE SAFE FLAG, not the risky one. A sync copies EDITED
+  // memories as readily as new ones, and chunk ids are path-based, so without it a
+  // corrected memory lands on the far box and that box keeps answering with the sentence
+  // the memory no longer says -- the sync reports success and retrieval stays wrong.
+  // Measured on the laptop 2026-09-11: a plain run said "0 refreshed" on a file edited a
+  // minute earlier; the flagged run found 17 refreshed and 141 superseded.
+  //
+  // It cannot lose anything. Refresh is collection.update() -- same id, new document, new
+  // embedding -- which REMOVES NO ROW, and chunks orphaned by a memory getting shorter are
+  // MARKED superseded rather than deleted (rag_index.py:459-514). The chunk count cannot
+  // fall. delete_collection() is reached only under --rebuild (rag_index.py:484), which is
+  // never passed from here and never should be: that is the non-atomic operation that
+  // emptied this index on 2026-09-01.
+  //
+  // SAFE UNDER VERSION SKEW, which matters because the VPS is behind. rag_index.py reads
+  // the flag as `"--refresh-changed" in argv` (:700), a membership test and not argparse,
+  // so a copy that predates the flag IGNORES it and behaves exactly as it does today
+  // rather than erroring. Measured 2026-09-11: the VPS rag_index.py has 0 occurrences of
+  // the flag and no memory_index_guard.py at all, so the VPS leg below is a no-op until
+  // those two files are deployed there.
+  const REINDEX_ARGS = ["--source", "brain", "--refresh-changed"];
   if (pushed > 0 || pulled > 0) {
     if (pushed > 0) {
       try {
