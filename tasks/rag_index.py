@@ -474,11 +474,38 @@ def index_brain(client, model, rebuild: bool = False):
         collection.add(documents=new_docs, embeddings=embeds,
                        ids=new_ids, metadatas=new_metas)
 
+    # ── refresh edited memories, IN PLACE ────────────────────────────────────────
+    # collection.update() overwrites the document, embedding and metadata of an id that
+    # already exists. It removes NO row, so the chunk count cannot fall and nothing is
+    # deleted — the standing rule here has no exceptions.
+    if upd_docs:
+        batch = 64
+        uembeds = []
+        for i in range(0, len(upd_docs), batch):
+            uembeds.extend(_embed(model, upd_docs[i:i + batch]))
+        collection.update(documents=upd_docs, embeddings=uembeds,
+                          ids=upd_ids, metadatas=upd_metas)
+
+    # ── mark, never remove ───────────────────────────────────────────────────────
+    if stale_ids:
+        try:
+            got = collection.get(ids=stale_ids, include=["metadatas"])
+            metas = []
+            for m in (got.get("metadatas") or []):
+                m = dict(m or {})
+                m["superseded"] = True
+                metas.append(m)
+            if metas:
+                collection.update(ids=got.get("ids", []), metadatas=metas)
+        except Exception as exc:
+            print(f"  [brain] could not mark {len(stale_ids)} superseded chunk(s): {exc}")
+
     total = collection.count()
     print(f"  [brain] {corpus}")
     print(f"  [brain] {files} file(s) read, {skipped} skipped | "
-          f"{len(new_docs)} new chunk(s) | {total} total in index")
-    return len(new_docs)
+          f"{len(new_docs)} new chunk(s) | {len(upd_docs)} refreshed | "
+          f"{len(stale_ids)} superseded | {total} total in index")
+    return len(new_docs) + len(upd_docs)
 
 
 # ── Source: standing decisions ────────────────────────────────────────────────
