@@ -994,6 +994,66 @@
     </div>
   </a>
 
+  <!-- ── THE BOOK ─────────────────────────────────────────────────────────────
+       WHY THIS IS FIRST, ABOVE THE PRICES. Audited 2026-09-11: the whole Overview tab
+       contained ZERO occurrences of balance, equity, P&L, pnl, profit, exposure or
+       drawdown, and the entire 8,688-line page contained ZERO <canvas> elements and no
+       charting library. The home page answered "is the system healthy?" with nine cells
+       and never answered "am I making money?" at all. Every professional reference puts
+       real-time P&L and the equity curve first; this page put health and tickers first
+       and money nowhere.
+
+       NOT A NEW MEASUREMENT. Every number here was already computed and already served
+       — /api/journal carries pnl and realizedR per trade, /api/mt5/positions the open
+       book, /api/robustness-report the deflated Sharpe. This is the same defect as the
+       coverage audit: a reader with no surface. Nothing new is calculated here.
+
+       SVG, NOT A CHART LIBRARY, DELIBERATELY. A trading dashboard on a box that must
+       work when the internet does not has no business depending on a CDN to draw its
+       own equity curve. ~40 lines of path maths has no failure mode and no version.
+
+       EA AND ENGINE ARE NEVER POOLED, for the reason tasks/ea_crt_weekly_review.py
+       states: they are separate systems and a combined number describes neither. On
+       2026-09-11 that split was EA +652.34 against engine -670.17, and the home page
+       showed neither. -->
+  <div class="panel" id="book-panel" style="margin-bottom:16px">
+    <div class="panel-header">
+      <div class="panel-title">📒 The Book</div>
+      <span id="book-sub" style="font-size:.6rem;color:var(--muted)">loading…</span>
+    </div>
+    <div class="panel-body" style="padding:14px">
+      <div class="book-row" id="book-money">
+        <div class="book-cell"><div class="book-label">Open exposure</div><div class="book-value" id="bk-expo">—</div><div class="book-note" id="bk-expo-d">·</div></div>
+        <div class="book-cell"><div class="book-label">Unrealised</div><div class="book-value" id="bk-unreal">—</div><div class="book-note" id="bk-unreal-d">·</div></div>
+        <div class="book-cell"><div class="book-label">Today realised</div><div class="book-value" id="bk-today">—</div><div class="book-note" id="bk-today-d">·</div></div>
+        <div class="book-cell"><div class="book-label">Engine, closed</div><div class="book-value" id="bk-engine">—</div><div class="book-note" id="bk-engine-d">·</div></div>
+        <div class="book-cell"><div class="book-label">EA CRT, closed</div><div class="book-value" id="bk-ea">—</div><div class="book-note" id="bk-ea-d">·</div></div>
+      </div>
+
+      <!-- equity curve, with the drawdown shaded underneath it. Plotting equity alone
+           hides depth and duration of drawdown, which is the signal that matters. -->
+      <div style="margin-top:14px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+          <span style="font-size:.6rem;color:var(--muted);letter-spacing:.04em">ENGINE EQUITY &amp; DRAWDOWN — cumulative realised, closed trades only</span>
+          <span style="font-size:.6rem;color:var(--muted)" id="bk-curve-note"></span>
+        </div>
+        <div id="bk-curve" style="width:100%;overflow-x:auto"></div>
+      </div>
+
+      <!-- The most honest number on the page: how far the track record is from meaning
+           anything. minTrackRecordLength comes from sharpe-robustness.json and is the
+           system's OWN statistic. Amateur dashboards shout a win rate; this states what
+           is not yet known. -->
+      <div class="book-row" id="book-stats" style="margin-top:14px">
+        <div class="book-cell"><div class="book-label">Track record</div><div class="book-value" id="bk-track">—</div><div class="book-note" id="bk-track-d">trades to significance</div></div>
+        <div class="book-cell"><div class="book-label">Deflated Sharpe</div><div class="book-value" id="bk-dsr">—</div><div class="book-note" id="bk-dsr-d">·</div></div>
+        <div class="book-cell"><div class="book-label">Profit factor</div><div class="book-value" id="bk-pf">—</div><div class="book-note" id="bk-pf-d">·</div></div>
+        <div class="book-cell"><div class="book-label">Expectancy</div><div class="book-value" id="bk-exp">—</div><div class="book-note" id="bk-exp-d">per closed trade</div></div>
+        <div class="book-cell"><div class="book-label">Win rate</div><div class="book-value" id="bk-wr">—</div><div class="book-note" id="bk-wr-d">·</div></div>
+      </div>
+    </div>
+  </div>
+
   <!-- Price strip -->
   <div class="price-strip">
     <div class="price-card">
