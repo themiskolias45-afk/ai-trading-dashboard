@@ -204,6 +204,35 @@ function plateauEvidence(spec) {
  * (Sharpe/trade, n, skew, kurtosis) are already in the artifact, so nothing has to
  * be re-run to do this.
  */
+/**
+ * How many assessments are on disk — counted ONCE per process, not once per report.
+ *
+ * WHY. This was an inline fs.readdirSync(LAB_DIR) inside redeflate(), and redeflate()
+ * runs for EVERY report judge() looks at. Measured 2026-09-11 on the laptop: the
+ * directory holds 6,569 files, one listing-and-filter costs ~11 ms, and the scan did it
+ * 6,569 times — 73.0 s of the run spent re-counting a number that cannot change while
+ * the scan is running. Nothing writes an assessment during a scan, and the one file a
+ * real (non-dry) run does append, _promotable.jsonl, is excluded by the `_` prefix this
+ * very filter applies.
+ *
+ * IT CANNOT CHANGE WHAT CLEARS THE BAR. labTrials feeds `labScope` only, which is
+ * DISCLOSURE — printed at :290 and :504 and explicitly labelled "the bar uses FAMILY
+ * scope by design". The judgement uses `trials` from registry.trialsFor(). Equivalence
+ * was verified over every report before this shipped, not reasoned about.
+ *
+ * PER PROCESS, NOT PER SCAN, DELIBERATELY. lab_promote is a short-lived CLI: it counts,
+ * scans, prints and exits. A long-lived caller would want invalidation, so if this is
+ * ever required by the server, give it the same (mtimeMs,size) key lab_registry uses.
+ */
+let _labCount = null;
+function labAssessmentCount() {
+  if (_labCount !== null) return _labCount;
+  if (!fs.existsSync(LAB_DIR)) return null;
+  _labCount = fs.readdirSync(LAB_DIR)
+    .filter(f => f.endsWith('.json') && !f.startsWith('_')).length;
+  return _labCount;
+}
+
 function redeflate(report) {
   const all = report.all || {};
   const d = report.deflated || {};
