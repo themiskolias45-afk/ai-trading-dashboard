@@ -6967,7 +6967,73 @@ async function loadTrust() {
   }
 }
 
+/**
+ * The two cells /api/system-plan cannot answer.
+ *
+ * SEPARATE FROM loadTrust ON PURPOSE. These read two STATIC files under /dashboard, so a
+ * failure here cannot blank the seven cells above it and a slow strip cannot be caused by
+ * them. Both files are written by tasks/coverage_publish.cjs.
+ *
+ * WHY STATIC FILES RATHER THAN ROUTES. /dashboard is express.static (server/index.js:11280),
+ * so this needed no new route and therefore no server restart — and a restart is not free on
+ * a box holding open positions. It is the same route halt-coverage.json and
+ * mt5-runtime-status.json already take.
+ *
+ * NEITHER CELL EVER SHOWS A STALE GREEN. An unreachable or unpublished file reads
+ * "Unpublished", not "OK": the whole point of these two is that the strip was reporting
+ * health it had not actually checked.
+ */
+async function loadTrustExtras() {
+  // ── Coverage: the 88-check audit the System cell knows nothing about ──────
+  try {
+    const r = await fetch('/dashboard/coverage-audit.json?t=' + Date.now());
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const c = await r.json();
+    if (!c.available) {
+      setTrustCell('tr-coverage', 'trust-idle', 'Unpublished', c.reason || 'audit has not run', false);
+    } else {
+      const red = (c.red || []).length, amber = (c.amber || []).length;
+      const total = (c.summary && c.summary.total) || c.totalChecksParsed || 0;
+      // Staleness is reported as its own state. A clean report from yesterday is not
+      // evidence about today, and calling it "OK" would be the stale-green this fixes.
+      const cls = red ? 'trust-bad' : c.stale ? 'trust-warn' : amber ? 'trust-warn' : 'trust-ok';
+      const val = red ? red + ' RED' : c.stale ? 'Stale' : amber ? amber + ' AMBER' : 'All clear';
+      const names = (c.red || []).map(x => x.name).join(', ');
+      setTrustCell('tr-coverage', cls, val,
+        (red ? names + ' — ' : '') + total + ' checks, '
+          + (c.ageHours === null ? 'age unknown' : c.ageHours + 'h ago')
+          + (c.box ? ' on ' + c.box : ''),
+        false);
+    }
+  } catch (e) {
+    console.error('loadTrustExtras coverage:', e);
+    setTrustCell('tr-coverage', 'trust-idle', '—', 'coverage-audit.json unreachable', false);
+  }
+
+  // ── Medic: what the medic refused to decide for you ───────────────────────
+  try {
+    const r = await fetch('/dashboard/medic-ledger.json?t=' + Date.now());
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const m = await r.json();
+    if (!m.available) {
+      setTrustCell('tr-medic', 'trust-idle', 'Unpublished', m.reason || 'no medic ledger', false);
+    } else {
+      const open = m.openCount || 0;
+      const boxes = [...new Set((m.open || []).map(f => f.box))].join(', ');
+      setTrustCell('tr-medic', open ? 'trust-warn' : 'trust-ok',
+        open ? String(open) + ' escalated' : 'Clear',
+        open ? 'waiting on you' + (boxes ? ' — ' + boxes : '') + ' · open the Medic tab'
+             : m.distinctFindings + ' findings, all decided',
+        false);
+    }
+  } catch (e) {
+    console.error('loadTrustExtras medic:', e);
+    setTrustCell('tr-medic', 'trust-idle', '—', 'medic-ledger.json unreachable', false);
+  }
+}
+
 loadTrust();
+loadTrustExtras();
 setInterval(loadTrust, TRUST_REFRESH_MS);
 
 // ── WHY NOTHING FIRED ──────────────────────────────────────────
