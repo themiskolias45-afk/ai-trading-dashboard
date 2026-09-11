@@ -161,13 +161,22 @@ try {
         $py = $env:SMARTENTRY_PYTHON
         if (-not $py -or -not (Test-Path $py)) { $py = (Get-Command python -ErrorAction SilentlyContinue).Source }
         if ($py) {
+            # -NoNewWindow ONLY. Passing -WindowStyle alongside it throws
+            # InvalidOperationException - they are mutually exclusive - and the catch
+            # below then swallowed it, so the hook "passed" in 2.17s having indexed
+            # NOTHING. Caught 2026-09-11 only because the run was timed.
             $p = Start-Process -FilePath $py -ArgumentList @($guard) `
-                    -WorkingDirectory $proj -PassThru -WindowStyle Hidden -NoNewWindow
+                    -WorkingDirectory $proj -PassThru -NoNewWindow
             if (-not $p.WaitForExit(90000)) {
                 Write-Host "memory index still running - left to finish in the background (tasks/logs/memory_index.txt)" -ForegroundColor DarkGray
             }
+        } else {
+            Write-MemIndexNote "no python on PATH and SMARTENTRY_PYTHON unset - memory not indexed this session"
         }
     }
 } catch {
-    # Reporting only. A memory that is slow to become searchable must never fail a session.
+    # NAMED, NOT SWALLOWED. A memory that is slow to become searchable must never fail a
+    # session - but a guard that fails silently is how this one indexed nothing for a
+    # whole run and still printed success.
+    Write-MemIndexNote ("memory index could not start: " + $_.Exception.Message)
 }
