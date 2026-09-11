@@ -284,7 +284,7 @@ function main() {
         console.log("    " + (line ? line.trim() : "re-index ran"));
       } catch (e) {
         console.log("    RE-INDEX FAILED on the VPS: " + (e.message || e).toString().slice(0, 160));
-        console.log("    The files ARE copied. Run there: python tasks/rag_index.py --source brain");
+        console.log("    The files ARE copied. Run there: python tasks/rag_index.py " + REINDEX_ARGS.join(" "));
       }
     }
     if (pulled > 0) {
