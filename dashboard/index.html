@@ -915,6 +915,7 @@
   <button class="tab-btn" onclick="switchTab('journal')" id="t-journal">📒 Journal</button>
   <button class="tab-btn" onclick="switchTab('aibrain')" id="t-aibrain">🧠 AI Brain</button>
   <button class="tab-btn" onclick="switchTab('research')" id="t-research">🔬 Research</button>
+<button class="tab-btn" onclick="switchTab('medic')" id="t-medic">🩺 Medic</button>
 </nav>
 
 <!-- ═══════════════════════════════════════════════════════ TAB 1: OVERVIEW -->
@@ -2216,6 +2217,62 @@
      near-miss while appearing on zero pages, and it is how a searcher running
      unattended at 05:00 would have reported to nobody. Everything here is
      read-only: the harnesses write the reports, this renders them. -->
+<!-- ── MEDIC / APPROVALS ─────────────────────────────────────────────────────
+     Every doctor finding on BOTH boxes that nobody has decided, and the three
+     buttons that decide it. Before this, the medic's queue could only be read
+     from a terminal on the machine that raised it, so the VPS queue — the box
+     that actually trades — was invisible here: on 2026-09-11 this laptop showed
+     1 undecided finding while the VPS sat on 3 nobody had seen.
+
+     The buttons RECORD A DECISION. They never run the finding's remedy — that
+     command is printed to be read and copied, and nothing more. -->
+<div id="tab-medic" class="tab-panel">
+<div class="container">
+
+  <div class="panel" style="margin-bottom:14px">
+    <div class="panel-header">
+      <div class="panel-title">🩺 Medic — findings waiting on you, both boxes</div>
+      <span id="medic-summary" style="font-size:.6rem;color:var(--muted)">loading…</span>
+      <button onclick="loadMedicTab(true)" id="medic-refresh-btn"
+              style="margin-left:10px;font-size:.6rem;padding:3px 9px;border-radius:5px;cursor:pointer;
+                     background:var(--panel,#151a23);color:var(--text,#e6edf3);border:1px solid var(--border,#2a323d)">
+        ↻ Re-run the doctor
+      </button>
+    </div>
+    <div class="panel-body" style="max-height:none;padding:12px 14px">
+      <div style="font-size:.6rem;color:var(--muted);margin-bottom:10px;line-height:1.5">
+        A decision needs a reason — the medic refuses one without it, and so does this page.
+        <b>Approve</b> records <code>accepted</code>, <b>Reject</b> records <code>wontfix</code>,
+        <b>Wait</b> records <code>watching</code>. None of the three runs anything: the remedy is
+        printed so you can copy it, and repairs stay a deliberate act.
+      </div>
+      <div id="medic-needing"><div class="ai-empty">Loading…</div></div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-bottom:14px">
+    <div class="panel-header">
+      <div class="panel-title">✅ Already decided — still being reported</div>
+      <span id="medic-handled-count" style="font-size:.6rem;color:var(--muted)"></span>
+    </div>
+    <div class="panel-body" style="max-height:420px;overflow-y:auto;padding:12px 14px">
+      <div id="medic-handled"><div class="ai-empty">Loading…</div></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <div class="panel-title">🕊 Cleared — decided once, no longer reported</div>
+      <span id="medic-cleared-count" style="font-size:.6rem;color:var(--muted)"></span>
+    </div>
+    <div class="panel-body" style="max-height:320px;overflow-y:auto;padding:12px 14px">
+      <div id="medic-cleared"><div class="ai-empty">Loading…</div></div>
+    </div>
+  </div>
+
+</div>
+</div>
+
 <div id="tab-research" class="tab-panel">
 <div class="container">
 
@@ -2471,6 +2528,7 @@ function switchTab(name) {
   if (name === "feed")        loadFeedTab();
   if (name === "aibrain")     loadAIBrainTab();
   if (name === "research")    loadResearchTab();
+  if (name === "medic")       loadMedicTab();
 }
 
 // ── Mode toggle ──────────────────────────────────────────────
@@ -4174,6 +4232,216 @@ async function loadResearchTab() {
   try { renderResearchInstrument(payload.perInstrument); } catch (err) { console.error("rs instrument:", err); }
   try { renderResearchHealth(payload.backtestHealth); } catch (err) { console.error("rs health:", err); }
   try { renderResearchBars(payload.bars); } catch (err) { console.error("rs bars:", err); }
+}
+
+// ── Medic / approvals tab ────────────────────────────────────
+// Reads /api/medic, which runs tasks/medic.cjs on BOTH boxes and returns every
+// finding nobody has decided. The three buttons write a decision to that box's
+// append-only ledger and nothing else — they never execute a remedy.
+const MEDIC_SEV_COLOR = { RED: "#ef4444", AMBER: "#f59e0b", INFO: "#60a5fa" };
+const MEDIC_BUCKET_NOTE = {
+  REGRESSED: "marked fixed, and back — the repair did not hold",
+  NEW: "never decided by anyone",
+  DUE: "decided once, and the review window has passed",
+};
+let medicLoading = false;
+
+// escapeHtml() does not escape a single quote, and these two values are interpolated
+// into an onclick="…('id','source')" attribute where a quote would be executable. The
+// server only ever sends hex ids and local|peer, so this strips rather than escapes:
+// anything outside that alphabet is not a value this page has any use for.
+function medicSafeToken(value) {
+  return String(value == null ? "" : value).replace(/[^a-z0-9_-]/gi, "");
+}
+
+function medicChip(text, color) {
+  return '<span style="font-size:.5rem;font-weight:700;letter-spacing:.04em;padding:2px 6px;border-radius:4px;'
+    + 'background:' + color + '22;color:' + color + ';border:1px solid ' + color + '55">' + escapeHtml(text) + '</span>';
+}
+
+function medicFindingCard(item) {
+  const sev = MEDIC_SEV_COLOR[item.severity] || "#94a3b8";
+  const ledger = item.source === "peer" ? "VPS ledger" : "laptop ledger";
+  const safeId = medicSafeToken(item.id);
+  let html = '<div class="medic-card" data-medic-id="' + safeId + '" style="border:1px solid var(--border,#2a323d);'
+    + 'border-left:3px solid ' + sev + ';border-radius:7px;padding:11px 12px;margin-bottom:10px;background:var(--panel,#151a23)">';
+
+  html += '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px">'
+    + medicChip(item.severity || "?", sev)
+    + medicChip(item.bucket || "", item.bucket === "REGRESSED" ? "#ef4444" : "#94a3b8")
+    + medicChip("about: " + (item.box || "?"), "#94a3b8")
+    + medicChip(ledger, item.source === "peer" ? "#a78bfa" : "#38bdf8")
+    + '<span style="font-size:.5rem;color:var(--muted);margin-left:auto">' + safeId + '</span>'
+    + '</div>';
+
+  html += '<div style="font-size:.78rem;font-weight:600;margin-bottom:4px">' + escapeHtml(item.what || "") + '</div>';
+  if (item.bucket && MEDIC_BUCKET_NOTE[item.bucket]) {
+    html += '<div style="font-size:.55rem;color:var(--muted);margin-bottom:6px">' + escapeHtml(MEDIC_BUCKET_NOTE[item.bucket]) + '</div>';
+  }
+  if (item.why) {
+    html += '<div style="font-size:.65rem;color:var(--text,#e6edf3);opacity:.85;line-height:1.5;margin-bottom:6px">'
+      + escapeHtml(item.why) + '</div>';
+  }
+  if (item.remedy) {
+    html += '<div style="font-size:.58rem;color:var(--muted);margin-bottom:2px">Remedy — printed to be read and copied, never run by this page:</div>'
+      + '<code style="display:block;font-size:.6rem;background:#0b0f16;border:1px solid var(--border,#2a323d);'
+      + 'border-radius:5px;padding:6px 8px;margin-bottom:8px;white-space:pre-wrap;word-break:break-word">'
+      + escapeHtml(item.remedy) + '</code>';
+  }
+  if (item.prior) {
+    html += '<div style="font-size:.55rem;color:var(--muted);margin-bottom:8px;line-height:1.5">'
+      + '<b>Last decision:</b> ' + escapeHtml(item.prior.action || "?")
+      + ' on ' + escapeHtml(String(item.prior.ts || "").slice(0, 10))
+      + (item.prior.note ? ' — ' + escapeHtml(String(item.prior.note).slice(0, 400)) : "")
+      + '</div>';
+  }
+
+  html += '<textarea id="medic-note-' + safeId + '" rows="2" placeholder="Why? Required — this is what a future session reads instead of guessing."'
+    + ' style="width:100%;box-sizing:border-box;font-size:.62rem;font-family:inherit;padding:6px 8px;border-radius:5px;'
+    + 'background:#0b0f16;color:var(--text,#e6edf3);border:1px solid var(--border,#2a323d);resize:vertical"></textarea>';
+
+  html += '<div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:7px">'
+    + '<label style="font-size:.55rem;color:var(--muted)">re-read in'
+    + ' <input id="medic-days-' + safeId + '" type="number" min="1" max="365" value="7"'
+    + ' style="width:52px;font-size:.6rem;padding:3px 5px;border-radius:4px;background:#0b0f16;'
+    + 'color:var(--text,#e6edf3);border:1px solid var(--border,#2a323d)"> days</label>'
+    + medicButton(item, "approve", "✓ Approve", "#22c55e")
+    + medicButton(item, "reject", "✕ Reject", "#ef4444")
+    + medicButton(item, "wait", "⏸ Wait", "#f59e0b")
+    + '<span id="medic-status-' + safeId + '" style="font-size:.58rem;color:var(--muted)"></span>'
+    + '</div>';
+
+  html += '</div>';
+  return html;
+}
+
+function medicButton(item, decision, label, color) {
+  return '<button onclick="medicDecide(\'' + medicSafeToken(item.id) + '\',\'' + medicSafeToken(item.source) + '\',\'' + decision + '\')"'
+    + ' style="font-size:.6rem;font-weight:600;padding:5px 11px;border-radius:5px;cursor:pointer;'
+    + 'background:' + color + '1a;color:' + color + ';border:1px solid ' + color + '66">' + label + '</button>';
+}
+
+async function medicDecide(id, source, decision) {
+  const note = (document.getElementById("medic-note-" + id) || {}).value || "";
+  const days = (document.getElementById("medic-days-" + id) || {}).value || "";
+  const status = document.getElementById("medic-status-" + id);
+  if (!note.trim()) {
+    if (status) { status.style.color = "#f59e0b"; status.textContent = "a reason is required"; }
+    return;
+  }
+  if (status) { status.style.color = "var(--muted)"; status.textContent = "recording…"; }
+  try {
+    const response = await fetch(API + "/medic/ack", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: id, source: source, decision: decision, note: note, reviewDays: days }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.ok) throw new Error(result.error || ("HTTP " + response.status));
+    if (status) { status.style.color = "#22c55e"; status.textContent = "recorded: " + result.decision; }
+    const card = document.querySelector('.medic-card[data-medic-id="' + id + '"]');
+    if (card) card.style.opacity = ".45";
+    // The queue changed, so re-read it rather than leaving a page that still shows
+    // this finding as undecided. The server dropped its cache on the write.
+    setTimeout(function () { loadMedicTab(false); }, 900);
+  } catch (e) {
+    if (status) { status.style.color = "#ef4444"; status.textContent = "refused: " + e.message; }
+  }
+}
+
+function renderMedic(data) {
+  const needing = document.getElementById("medic-needing");
+  const handled = document.getElementById("medic-handled");
+  const cleared = document.getElementById("medic-cleared");
+  const summary = document.getElementById("medic-summary");
+
+  if (!data || !data.ok) {
+    if (needing) needing.innerHTML = '<div class="ai-empty">Medic unavailable — ' + escapeHtml((data && data.error) || "server offline?") + '</div>';
+    if (summary) summary.textContent = "unavailable";
+    return;
+  }
+
+  const rows = data.needingDecision || [];
+  if (summary) {
+    const parts = (data.boxes || []).map(function (b) {
+      const name = b.source === "peer" ? "VPS" : "laptop";
+      if (!b.ok) return name + ": UNREACHABLE";
+      const c = b.counts || {};
+      return name + ": " + ((c.new || 0) + (c.regressed || 0) + (c.due || 0)) + " open / " + (c.handled || 0) + " decided";
+    });
+    const age = data.cache && data.cache.hit ? " · read " + data.cache.ageSeconds + "s ago" : " · just re-run";
+    summary.textContent = rows.length + " waiting on you — " + parts.join(" · ") + age;
+    summary.style.color = rows.length ? "#f59e0b" : "var(--muted)";
+  }
+
+  // A box that could not be reached is said out loud. Silence is never read as health:
+  // an unreachable VPS and a VPS with nothing wrong look identical in a count.
+  let head = "";
+  (data.unreachable || []).forEach(function (u) {
+    head += '<div style="font-size:.62rem;color:#ef4444;border:1px solid #ef444455;background:#ef44441a;'
+      + 'border-radius:6px;padding:8px 10px;margin-bottom:10px">⚠ '
+      + escapeHtml(u.source === "peer" ? "The VPS" : "This box") + ' did not answer — '
+      + escapeHtml(u.error || "unknown error")
+      + '. Its findings are NOT in this list; this is not the same as it having none.</div>';
+  });
+
+  if (needing) {
+    needing.innerHTML = head + (rows.length
+      ? rows.map(medicFindingCard).join("")
+      : '<div class="ai-empty">Nothing waiting. Every finding on both boxes has a decision and a reason.</div>');
+  }
+
+  const handledRows = [];
+  const clearedRows = [];
+  (data.boxes || []).forEach(function (b) {
+    (b.handled || []).forEach(function (r) { handledRows.push(r); });
+    (b.cleared || []).forEach(function (r) { clearedRows.push(r); });
+  });
+
+  const countEl = document.getElementById("medic-handled-count");
+  if (countEl) countEl.textContent = handledRows.length + " finding(s)";
+  if (handled) {
+    handled.innerHTML = handledRows.length ? handledRows.map(function (r) {
+      const sev = MEDIC_SEV_COLOR[r.severity] || "#94a3b8";
+      return '<div style="border-bottom:1px solid var(--border,#2a323d);padding:8px 0">'
+        + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:3px">'
+        + medicChip(r.severity || "?", sev)
+        + medicChip(r.source === "peer" ? "VPS" : "laptop", r.source === "peer" ? "#a78bfa" : "#38bdf8")
+        + '<span style="font-size:.68rem;font-weight:600">' + escapeHtml(r.what || "") + '</span></div>'
+        + '<div style="font-size:.55rem;color:var(--muted);line-height:1.5">'
+        + escapeHtml((r.prior && r.prior.action) || "?") + ' on '
+        + escapeHtml(String((r.prior && r.prior.ts) || "").slice(0, 10)) + ' — '
+        + escapeHtml(String((r.prior && r.prior.note) || "").slice(0, 500)) + '</div></div>';
+    }).join("") : '<div class="ai-empty">Nothing decided is still being reported.</div>';
+  }
+
+  const clearedCountEl = document.getElementById("medic-cleared-count");
+  if (clearedCountEl) clearedCountEl.textContent = clearedRows.length + " finding(s)";
+  if (cleared) {
+    cleared.innerHTML = clearedRows.length ? clearedRows.map(function (r) {
+      return '<div style="border-bottom:1px solid var(--border,#2a323d);padding:6px 0;font-size:.62rem">'
+        + medicChip(r.source === "peer" ? "VPS" : "laptop", r.source === "peer" ? "#a78bfa" : "#38bdf8")
+        + ' <span style="opacity:.85">' + escapeHtml(r.what || "") + '</span>'
+        + ' <span style="color:var(--muted)">— was ' + escapeHtml(r.action || "?") + '</span></div>';
+    }).join("") : '<div class="ai-empty">Nothing on the ledger has stopped being reported.</div>';
+  }
+}
+
+async function loadMedicTab(force) {
+  if (medicLoading) return;
+  medicLoading = true;
+  const btn = document.getElementById("medic-refresh-btn");
+  const summary = document.getElementById("medic-summary");
+  if (btn) { btn.disabled = true; btn.textContent = "running…"; }
+  if (force && summary) summary.textContent = "running the doctor on both boxes — around 20s…";
+  try {
+    renderMedic(await getJson("/medic" + (force ? "?refresh=1" : "")));
+  } catch (e) {
+    renderMedic({ ok: false, error: e.message });
+  } finally {
+    medicLoading = false;
+    if (btn) { btn.disabled = false; btn.textContent = "↻ Re-run the doctor"; }
+  }
 }
 
 async function loadAIBrainTab() {

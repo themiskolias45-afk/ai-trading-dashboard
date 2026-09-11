@@ -14454,6 +14454,235 @@ app.get("/api/engineer/runs", requireLocalOnly, (_, res) => {
   res.json({ runs });
 });
 
+// ── /api/medic ────────────────────────────────────────────────
+// THE APPROVALS SURFACE - every undecided finding on BOTH boxes, and a way to answer it.
+//
+// tasks/medic.cjs already asks the only question that matters about the doctor's output:
+// which findings has nobody decided? It refuses to let one be silenced without a written
+// reason, and it exits non-zero until every NEW, REGRESSED and DUE finding has an action
+// and a note on its append-only ledger. What it did not have was a reader. The only way
+// to see the queue or answer it was a terminal ON THAT BOX, which meant the VPS queue -
+// the box that actually trades - was invisible from the dashboard entirely. On 2026-09-11
+// the laptop showed 1 undecided finding while the VPS was sitting on 3 nobody had seen.
+//
+// So this publishes both queues in one payload and records a decision against either.
+//
+// WHAT IT DELIBERATELY CANNOT DO: it never runs a finding's REMEDY. The remedy string is
+// published so it can be read and copied, and that is the end of it. A button that
+// executes a command string lifted out of a diagnostic file is an order path with extra
+// steps, and this system already has five of those. Recording a decision appends one line
+// to a ledger; it touches no gate, threshold, setup, confidence, size, stop, order path,
+// journal or learning record. feedsTheGate is false and stays false.
+//
+// The peer is reached over ssh with a FIXED command string carrying no caller data at all
+// - the decision travels on stdin to tasks/medic_ack_stdin.cjs, which re-issues it through
+// execFile with an argv array. See that file for why a note is never a command line.
+const MEDIC_SCRIPT = path.join(REPO_ROOT, "tasks", "medic.cjs");
+const MEDIC_ACK_STDIN = "tasks\\medic_ack_stdin.cjs";
+const MEDIC_PEER_HOST = process.env.SMARTENTRY_PEER_HOST || "169.58.74.133";
+const MEDIC_PEER_USER = process.env.SMARTENTRY_PEER_USER || "administrator";
+const MEDIC_PEER_KEY = process.env.SMARTENTRY_PEER_KEY ||
+  path.join(os.homedir(), ".ssh", "contabo_smartentry");
+const MEDIC_PEER_ROOT = process.env.SMARTENTRY_PEER_ROOT || "C:\\ai-trading-dashboard";
+// The doctor is the slow part: 15s locally, 5s on the peer, and it queries the Windows
+// event log and both MT5 bridges to get there. Cached so opening the tab does not re-run
+// it, and single-flighted so five tabs opening at once are one run and not five.
+const MEDIC_TTL_MS = 10 * 60 * 1000;
+const MEDIC_RUN_TIMEOUT_MS = 180000;
+const MEDIC_ACK_TIMEOUT_MS = 60000;
+const MEDIC_MAX_BUFFER = 32 * 1024 * 1024;
+let medicCache = { at: 0, payload: null };
+let medicInflight = null;
+
+// The medic exits 1 whenever anything needs a decision, which is the NORMAL case, so a
+// non-zero exit with valid JSON on stdout is a result and not a failure. Reading only
+// stdout also drops the ssh post-quantum banner, which arrives on stderr.
+function parseMedicJson(stdout) {
+  const text = String(stdout || "");
+  const start = text.indexOf("{");
+  if (start < 0) throw new Error("no JSON in medic output");
+  return JSON.parse(text.slice(start));
+}
+
+function runMedicJson(where) {
+  return new Promise((resolve) => {
+    const isPeer = where === "peer";
+    const file = isPeer ? "ssh" : process.execPath;
+    const args = isPeer
+      ? ["-i", MEDIC_PEER_KEY, "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+         `${MEDIC_PEER_USER}@${MEDIC_PEER_HOST}`,
+         `cd ${MEDIC_PEER_ROOT} && node tasks\\medic.cjs --json`]
+      : [MEDIC_SCRIPT, "--json"];
+
+    require("child_process").execFile(file, args, {
+      cwd: REPO_ROOT, encoding: "utf8", timeout: MEDIC_RUN_TIMEOUT_MS,
+      maxBuffer: MEDIC_MAX_BUFFER, windowsHide: true,
+    }, (err, stdout) => {
+      try {
+        resolve({ source: where, ok: true, ...parseMedicJson(stdout) });
+      } catch (parseErr) {
+        // Silence is never read as health here either: a box that could not be reached
+        // is reported as unreachable, not as a box with no findings.
+        resolve({
+          source: where, ok: false,
+          error: String((err && err.message) || parseErr.message).split("\n")[0].slice(0, 300),
+          counts: { new: 0, regressed: 0, due: 0, handled: 0, cleared: 0 },
+          new: [], regressed: [], due: [], handled: [], cleared: [],
+        });
+      }
+    });
+  });
+}
+
+// Every finding carries the box it is ABOUT ("this box" / "local" / "peer" / "fleet"),
+// which is not the same as the box whose ledger holds it. An ack has to go back to the
+// medic that raised it, so the source is stamped on every row here and echoed back by
+// the client. Conflating the two would file a VPS decision on the laptop's ledger, where
+// the VPS medic would never see it and would keep reporting the finding as NEW.
+function stampMedicSource(report) {
+  const stamp = (rows) => (Array.isArray(rows) ? rows : []).map(r => ({ ...r, source: report.source }));
+  return {
+    source: report.source,
+    ok: report.ok !== false,
+    error: report.error || null,
+    generatedAt: report.generatedAt || null,
+    counts: report.counts || { new: 0, regressed: 0, due: 0, handled: 0, cleared: 0 },
+    new: stamp(report.new),
+    regressed: stamp(report.regressed),
+    due: stamp(report.due),
+    handled: stamp(report.handled),
+    cleared: stamp(report.cleared),
+  };
+}
+
+async function buildMedicPayload() {
+  const [local, peer] = await Promise.all([runMedicJson("local"), runMedicJson("peer")]);
+  const boxes = [stampMedicSource(local), stampMedicSource(peer)];
+  const needing = [];
+  for (const box of boxes) {
+    for (const bucket of ["regressed", "new", "due"]) {
+      for (const item of box[bucket]) needing.push({ ...item, bucket: bucket.toUpperCase() });
+    }
+  }
+  // REGRESSED first - a repair that did not hold is the most important thing this tool
+  // can say - then by severity, so a RED never sits under an INFO.
+  const bucketRank = { REGRESSED: 0, NEW: 1, DUE: 2 };
+  const sevRank = { RED: 0, AMBER: 1, INFO: 2 };
+  needing.sort((a, b) =>
+    (bucketRank[a.bucket] ?? 9) - (bucketRank[b.bucket] ?? 9) ||
+    (sevRank[a.severity] ?? 9) - (sevRank[b.severity] ?? 9));
+
+  return {
+    ok: true,
+    generatedAt: new Date().toISOString(),
+    needingDecision: needing,
+    boxes,
+    unreachable: boxes.filter(b => !b.ok).map(b => ({ source: b.source, error: b.error })),
+    feedsTheGate: false,
+  };
+}
+
+app.get("/api/medic", async (req, res) => {
+  const force = req.query.refresh === "1";
+  const fresh = medicCache.payload && (Date.now() - medicCache.at) < MEDIC_TTL_MS;
+  if (fresh && !force) {
+    return res.json({ ...medicCache.payload, cache: { hit: true, ageSeconds: Math.round((Date.now() - medicCache.at) / 1000), ttlSeconds: MEDIC_TTL_MS / 1000 } });
+  }
+  if (!medicInflight) {
+    medicInflight = buildMedicPayload()
+      .then(payload => { medicCache = { at: Date.now(), payload }; return payload; })
+      .finally(() => { medicInflight = null; });
+  }
+  try {
+    const payload = await medicInflight;
+    res.json({ ...payload, cache: { hit: false, ageSeconds: 0, ttlSeconds: MEDIC_TTL_MS / 1000 } });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// The three dashboard buttons and what each one WRITES. The medic's vocabulary is wider
+// than three words, so the mapping is declared here rather than left to the client: a
+// client that could name any action could name "fixed", and "fixed" is the one verb that
+// makes a finding come back as REGRESSED if it was not actually repaired.
+const MEDIC_DECISIONS = {
+  approve: { action: "accepted", label: "Approved - agreed, no action needed" },
+  reject: { action: "wontfix", label: "Rejected - not doing this" },
+  wait: { action: "watching", label: "Waiting - leave it and re-check" },
+};
+const MEDIC_MAX_NOTE = 4000;
+const MEDIC_MAX_REVIEW_DAYS = 365;
+
+app.post("/api/medic/ack", requireLocalOnly, (req, res) => {
+  const body = req.body || {};
+  const decision = MEDIC_DECISIONS[String(body.decision || "").toLowerCase()];
+  const id = String(body.id || "").trim().toLowerCase();
+  const source = String(body.source || "").trim().toLowerCase();
+  const note = String(body.note || "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, MEDIC_MAX_NOTE);
+
+  if (!decision) {
+    return res.status(400).json({ ok: false, error: "decision must be one of: " + Object.keys(MEDIC_DECISIONS).join(", ") });
+  }
+  if (!/^[0-9a-f]{6,32}$/.test(id)) {
+    return res.status(400).json({ ok: false, error: "id must be 6-32 hex characters" });
+  }
+  if (source !== "local" && source !== "peer") {
+    return res.status(400).json({ ok: false, error: 'source must be "local" or "peer"' });
+  }
+  // The medic refuses a decision with no reason and so does this, before anything is
+  // spawned. A silenced finding with no reason is the exact failure the medic exists
+  // to prevent, and a dashboard button is the easiest possible way to do it by accident.
+  if (!note) {
+    return res.status(400).json({ ok: false, error: "a reason is required - say why, in your own words" });
+  }
+  let reviewDays;
+  if (body.reviewDays !== undefined && body.reviewDays !== null && body.reviewDays !== "") {
+    reviewDays = Number(body.reviewDays);
+    if (!Number.isFinite(reviewDays) || reviewDays <= 0 || reviewDays > MEDIC_MAX_REVIEW_DAYS) {
+      return res.status(400).json({ ok: false, error: "reviewDays must be between 1 and " + MEDIC_MAX_REVIEW_DAYS });
+    }
+  }
+
+  const payload = JSON.stringify({ id, action: decision.action, note, reviewDays });
+  const isPeer = source === "peer";
+  const file = isPeer ? "ssh" : process.execPath;
+  const args = isPeer
+    ? ["-i", MEDIC_PEER_KEY, "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
+       `${MEDIC_PEER_USER}@${MEDIC_PEER_HOST}`,
+       `cd ${MEDIC_PEER_ROOT} && node ${MEDIC_ACK_STDIN}`]
+    : [path.join(REPO_ROOT, "tasks", "medic_ack_stdin.cjs")];
+
+  // execFile's callback fires for a spawn failure too, so it is the ONLY place that
+  // answers. A separate "error" listener here would answer a second time and crash the
+  // process on the double send.
+  const child = require("child_process").execFile(file, args, {
+    cwd: REPO_ROOT, encoding: "utf8", timeout: MEDIC_ACK_TIMEOUT_MS,
+    maxBuffer: 1024 * 1024, windowsHide: true,
+  }, (err, stdout) => {
+    let result = null;
+    try { result = parseMedicJson(stdout); } catch { /* fall through to the error below */ }
+    if (result && result.ok) {
+      // The queue this decision just changed is now stale. Drop the cache rather than
+      // serving a page that still lists the finding as undecided.
+      medicCache = { at: 0, payload: null };
+      return res.json({ ok: true, id, decision: decision.action, label: decision.label, source, output: result.output || "" });
+    }
+    const detail = (result && result.error) ||
+      String((err && err.message) || "the medic refused the ack").split("\n")[0];
+    res.status(422).json({ ok: false, error: detail.slice(0, 600) });
+  });
+
+  // A child that failed to spawn has no usable stdin, and an EPIPE here would be an
+  // unhandled throw inside a request handler. The callback above still reports it.
+  try {
+    child.stdin.on("error", () => {});
+    child.stdin.write(payload, "utf8");
+    child.stdin.end();
+  } catch (e) {
+    console.error("[medic] could not send the ack payload:", e.message);
+  }
+});
+
 // ── Boot ──────────────────────────────────────────────────────
 // One timestamped line per boot, appended forever.
 //
