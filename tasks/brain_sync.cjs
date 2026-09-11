@@ -290,7 +290,7 @@ function main() {
     if (pulled > 0) {
       try {
         console.log("  re-indexing locally (" + pulled + " file(s) pulled)...");
-        const out = execFileSync("python", ["tasks/rag_index.py", "--source", "brain"],
+        const out = execFileSync("python", ["tasks/rag_index.py", ...REINDEX_ARGS],
           { cwd: ROOT, encoding: "utf8", timeout: 600000, maxBuffer: 32 * 1024 * 1024,
             stdio: CAPTURE });
         const line = String(out).split(/\r?\n/).find((l) => /new document|total in index/.test(l));
