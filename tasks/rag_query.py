@@ -108,6 +108,13 @@ def query(question: str, top_k: int = 5, sources: list[str] | None = None) -> li
         distances = res.get("distances", [[]])[0]
 
         for doc, meta, dist in zip(docs, metas, distances):
+            # SUPERSEDED CHUNKS ARE NOT RETURNED, AND NOT DELETED EITHER.
+            # When a memory is edited down to fewer chunks, the higher-numbered rows hold
+            # text the memory no longer says. rag_index.py marks them superseded rather
+            # than removing them - nothing in this system is deleted - so the row survives
+            # for forensics while retrieval stops quoting a claim that was withdrawn.
+            if (meta or {}).get("superseded") is True:
+                continue
             score = round(1 - dist, 4)   # cosine distance → similarity
             if score < 0.2:              # too dissimilar — skip
                 continue
