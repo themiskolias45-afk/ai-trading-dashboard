@@ -135,6 +135,16 @@ try {
     # Write failure must never crash the hook — state file is a convenience, not a blocker.
 }
 
+# Failures here are written where a human will find them, never only to a swallowed
+# exception. Same file the guard itself logs to, so the story is in one place.
+function Write-MemIndexNote($text) {
+    $line = "[" + (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') + "] session-stop: $text"
+    Write-Host $line -ForegroundColor Yellow
+    try {
+        Add-Content -Path (Join-Path $proj 'tasks\logs\memory_index.txt') -Value $line -Encoding UTF8 -ErrorAction SilentlyContinue
+    } catch { }
+}
+
 # --- 5. Make any memory written this session FINDABLE ---
 #
 # WHY HERE. The memory corpus is reindexed once a day by tasks/brain_sync.cjs (04:10), so
