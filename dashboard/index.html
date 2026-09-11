@@ -4246,12 +4246,23 @@ const MEDIC_BUCKET_NOTE = {
 };
 let medicLoading = false;
 
-// escapeHtml() does not escape a single quote, and these two values are interpolated
-// into an onclick="…('id','source')" attribute where a quote would be executable. The
-// server only ever sends hex ids and local|peer, so this strips rather than escapes:
-// anything outside that alphabet is not a value this page has any use for.
+// escapeHtml() does not escape a single quote, and these values are interpolated into
+// an onclick="…('source','id')" attribute where a quote would be executable. The server
+// only ever sends hex ids and local|peer, so this strips rather than escapes: anything
+// outside that alphabet is not a value this page has any use for.
 function medicSafeToken(value) {
   return String(value == null ? "" : value).replace(/[^a-z0-9_-]/gi, "");
+}
+
+// THE ID IS NOT UNIQUE ON ITS OWN, and that is by design in the medic: the stationary id
+// hashes box + what, so the SAME finding text raised on both machines produces the SAME
+// id on both ledgers — "5 lab candidate(s) cleared the bar" is 83eef02cbd60 here and
+// 83eef02cbd60 on the VPS. Keying the DOM on the id alone gave two cards the same
+// element ids, and getElementById returns the FIRST: pressing Approve on the VPS card
+// read the laptop card's note and review window, then filed it against the VPS. The
+// ledger row would have been real, the reason would have belonged to another box.
+function medicKey(item) {
+  return medicSafeToken(item.source) + "-" + medicSafeToken(item.id);
 }
 
 function medicChip(text, color) {
@@ -4262,8 +4273,8 @@ function medicChip(text, color) {
 function medicFindingCard(item) {
   const sev = MEDIC_SEV_COLOR[item.severity] || "#94a3b8";
   const ledger = item.source === "peer" ? "VPS ledger" : "laptop ledger";
-  const safeId = medicSafeToken(item.id);
-  let html = '<div class="medic-card" data-medic-id="' + safeId + '" style="border:1px solid var(--border,#2a323d);'
+  const key = medicKey(item);
+  let html = '<div class="medic-card" data-medic-key="' + key + '" style="border:1px solid var(--border,#2a323d);'
     + 'border-left:3px solid ' + sev + ';border-radius:7px;padding:11px 12px;margin-bottom:10px;background:var(--panel,#151a23)">';
 
   html += '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px">'
@@ -4271,7 +4282,7 @@ function medicFindingCard(item) {
     + medicChip(item.bucket || "", item.bucket === "REGRESSED" ? "#ef4444" : "#94a3b8")
     + medicChip("about: " + (item.box || "?"), "#94a3b8")
     + medicChip(ledger, item.source === "peer" ? "#a78bfa" : "#38bdf8")
-    + '<span style="font-size:.5rem;color:var(--muted);margin-left:auto">' + safeId + '</span>'
+    + '<span style="font-size:.5rem;color:var(--muted);margin-left:auto">' + medicSafeToken(item.id) + '</span>'
     + '</div>';
 
   html += '<div style="font-size:.78rem;font-weight:600;margin-bottom:4px">' + escapeHtml(item.what || "") + '</div>';
@@ -4296,19 +4307,25 @@ function medicFindingCard(item) {
       + '</div>';
   }
 
-  html += '<textarea id="medic-note-' + safeId + '" rows="2" placeholder="Why? Required — this is what a future session reads instead of guessing."'
+  html += '<textarea id="medic-note-' + key + '" rows="2" placeholder="Why? Required — this is what a future session reads instead of guessing."'
     + ' style="width:100%;box-sizing:border-box;font-size:.62rem;font-family:inherit;padding:6px 8px;border-radius:5px;'
     + 'background:#0b0f16;color:var(--text,#e6edf3);border:1px solid var(--border,#2a323d);resize:vertical"></textarea>';
 
+  // BLANK MEANS THE MEDIC'S OWN WINDOW, and blank is the default on purpose. The medic
+  // re-reads an "accepted" finding after ACCEPTED_REVIEW_DAYS = 90 and everything else
+  // after 14. This box used to pre-fill 7 and send it on every press, which silently
+  // overrode both — every standing truth you accepted would have come back as DUE a week
+  // later, and the queue would fill with decisions you had already made.
   html += '<div style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:7px">'
     + '<label style="font-size:.55rem;color:var(--muted)">re-read in'
-    + ' <input id="medic-days-' + safeId + '" type="number" min="1" max="365" value="7"'
-    + ' style="width:52px;font-size:.6rem;padding:3px 5px;border-radius:4px;background:#0b0f16;'
-    + 'color:var(--text,#e6edf3);border:1px solid var(--border,#2a323d)"> days</label>'
+    + ' <input id="medic-days-' + key + '" type="number" min="1" max="365" placeholder="auto"'
+    + ' style="width:58px;font-size:.6rem;padding:3px 5px;border-radius:4px;background:#0b0f16;'
+    + 'color:var(--text,#e6edf3);border:1px solid var(--border,#2a323d)"> days'
+    + ' <span style="opacity:.7">(blank = 90 if approved, else 14)</span></label>'
     + medicButton(item, "approve", "✓ Approve", "#22c55e")
     + medicButton(item, "reject", "✕ Reject", "#ef4444")
     + medicButton(item, "wait", "⏸ Wait", "#f59e0b")
-    + '<span id="medic-status-' + safeId + '" style="font-size:.58rem;color:var(--muted)"></span>'
+    + '<span id="medic-status-' + key + '" style="font-size:.58rem;color:var(--muted)"></span>'
     + '</div>';
 
   html += '</div>';
@@ -4316,36 +4333,51 @@ function medicFindingCard(item) {
 }
 
 function medicButton(item, decision, label, color) {
-  return '<button onclick="medicDecide(\'' + medicSafeToken(item.id) + '\',\'' + medicSafeToken(item.source) + '\',\'' + decision + '\')"'
+  return '<button onclick="medicDecide(\'' + medicSafeToken(item.source) + '\',\'' + medicSafeToken(item.id) + '\',\'' + decision + '\')"'
     + ' style="font-size:.6rem;font-weight:600;padding:5px 11px;border-radius:5px;cursor:pointer;'
     + 'background:' + color + '1a;color:' + color + ';border:1px solid ' + color + '66">' + label + '</button>';
 }
 
-async function medicDecide(id, source, decision) {
-  const note = (document.getElementById("medic-note-" + id) || {}).value || "";
-  const days = (document.getElementById("medic-days-" + id) || {}).value || "";
-  const status = document.getElementById("medic-status-" + id);
+async function medicDecide(source, id, decision) {
+  const key = medicSafeToken(source) + "-" + medicSafeToken(id);
+  const noteEl = document.getElementById("medic-note-" + key);
+  const daysEl = document.getElementById("medic-days-" + key);
+  const status = document.getElementById("medic-status-" + key);
+  const note = noteEl ? noteEl.value : "";
+  const days = daysEl ? daysEl.value : "";
   if (!note.trim()) {
     if (status) { status.style.color = "#f59e0b"; status.textContent = "a reason is required"; }
     return;
   }
   if (status) { status.style.color = "var(--muted)"; status.textContent = "recording…"; }
+  const body = { id: id, source: source, decision: decision, note: note };
+  if (String(days).trim()) body.reviewDays = days;
   try {
     const response = await fetch(API + "/medic/ack", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: id, source: source, decision: decision, note: note, reviewDays: days }),
+      body: JSON.stringify(body),
     });
     const result = await response.json();
-    if (!response.ok || !result.ok) throw new Error(result.error || ("HTTP " + response.status));
+    if (!response.ok || !result.ok) {
+      const err = new Error(result.error || ("HTTP " + response.status));
+      err.uncertain = Boolean(result.uncertain);
+      throw err;
+    }
     if (status) { status.style.color = "#22c55e"; status.textContent = "recorded: " + result.decision; }
-    const card = document.querySelector('.medic-card[data-medic-id="' + id + '"]');
+    const card = document.querySelector('.medic-card[data-medic-key="' + key + '"]');
     if (card) card.style.opacity = ".45";
-    // The queue changed, so re-read it rather than leaving a page that still shows
-    // this finding as undecided. The server dropped its cache on the write.
+    // The queue changed, so re-read it rather than leaving a page that still shows this
+    // finding as undecided. The server dropped its cache on the write.
     setTimeout(function () { loadMedicTab(false); }, 900);
   } catch (e) {
-    if (status) { status.style.color = "#ef4444"; status.textContent = "refused: " + e.message; }
+    if (status) {
+      // An ack that timed out may still have landed — the ledger is append-only and the
+      // write happens before the answer comes back. Saying "refused" there would be a
+      // guess, and the fix for a guess is to look, not to press the button again.
+      status.style.color = e.uncertain ? "#f59e0b" : "#ef4444";
+      status.textContent = (e.uncertain ? "UNKNOWN — re-run the doctor to see if it landed: " : "refused: ") + e.message;
+    }
   }
 }
 
@@ -4362,6 +4394,16 @@ function renderMedic(data) {
   }
 
   const rows = data.needingDecision || [];
+  // Findings the medic could not key, and ledger lines it could not parse. They are
+  // counted but they are not rows, so they can never appear in the list above — and
+  // without this the page would say "nothing waiting" while the medic exits 1. Silence
+  // is not health here either.
+  let oddities = 0;
+  (data.boxes || []).forEach(function (b) {
+    const c = b.counts || {};
+    oddities += (c.unreadable || 0) + (c.corruptLedgerLines || 0);
+  });
+
   if (summary) {
     const parts = (data.boxes || []).map(function (b) {
       const name = b.source === "peer" ? "VPS" : "laptop";
@@ -4370,13 +4412,15 @@ function renderMedic(data) {
       return name + ": " + ((c.new || 0) + (c.regressed || 0) + (c.due || 0)) + " open / " + (c.handled || 0) + " decided";
     });
     const age = data.cache && data.cache.hit ? " · read " + data.cache.ageSeconds + "s ago" : " · just re-run";
-    summary.textContent = rows.length + " waiting on you — " + parts.join(" · ") + age;
-    summary.style.color = rows.length ? "#f59e0b" : "var(--muted)";
+    summary.textContent = rows.length + " waiting on you"
+      + (oddities ? " · " + oddities + " unreadable" : "")
+      + " — " + parts.join(" · ") + age;
+    summary.style.color = (rows.length || oddities) ? "#f59e0b" : "var(--muted)";
   }
 
-  // A box that could not be reached is said out loud. Silence is never read as health:
-  // an unreachable VPS and a VPS with nothing wrong look identical in a count.
   let head = "";
+  // A box that could not be reached is said out loud. An unreachable VPS and a VPS with
+  // nothing wrong look identical in a count, and only one of them is good news.
   (data.unreachable || []).forEach(function (u) {
     head += '<div style="font-size:.62rem;color:#ef4444;border:1px solid #ef444455;background:#ef44441a;'
       + 'border-radius:6px;padding:8px 10px;margin-bottom:10px">⚠ '
@@ -4384,11 +4428,19 @@ function renderMedic(data) {
       + escapeHtml(u.error || "unknown error")
       + '. Its findings are NOT in this list; this is not the same as it having none.</div>';
   });
+  if (oddities) {
+    head += '<div style="font-size:.62rem;color:#f59e0b;border:1px solid #f59e0b55;background:#f59e0b1a;'
+      + 'border-radius:6px;padding:8px 10px;margin-bottom:10px">⚠ ' + oddities
+      + ' finding(s) or ledger line(s) could not be read, so they are NOT in this list and cannot be'
+      + ' decided from here. Read them with <code>node tasks/medic.cjs</code> on the box that raised them.</div>';
+  }
 
   if (needing) {
     needing.innerHTML = head + (rows.length
       ? rows.map(medicFindingCard).join("")
-      : '<div class="ai-empty">Nothing waiting. Every finding on both boxes has a decision and a reason.</div>');
+      : (oddities
+        ? '<div class="ai-empty">No decidable findings — but see the unreadable ones above.</div>'
+        : '<div class="ai-empty">Nothing waiting. Every finding on both boxes has a decision and a reason.</div>'));
   }
 
   const handledRows = [];

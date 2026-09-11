@@ -14493,6 +14493,11 @@ const MEDIC_ACK_TIMEOUT_MS = 60000;
 const MEDIC_MAX_BUFFER = 32 * 1024 * 1024;
 let medicCache = { at: 0, payload: null };
 let medicInflight = null;
+// Bumped by every ack. A GET that started BEFORE an ack landed carries an answer that
+// predates the decision, and without this guard it writes that stale answer into the
+// cache a moment after the ack cleared it - so the finding you just decided comes back
+// as undecided and sits there for the next ten minutes.
+let medicStateVersion = 0;
 
 // The medic exits 1 whenever anything needs a decision, which is the NORMAL case, so a
 // non-zero exit with valid JSON on stdout is a result and not a failure. Reading only
@@ -14502,6 +14507,24 @@ function parseMedicJson(stdout) {
   const start = text.indexOf("{");
   if (start < 0) throw new Error("no JSON in medic output");
   return JSON.parse(text.slice(start));
+}
+
+// WHY NOT err.message. execFile builds it as "Command failed: <the entire command
+// line>" followed by stderr, so the FIRST line is always the command and never the
+// cause - taking line 0 reported "Command failed: ssh -i ..." for a missing key, a
+// refused host and a dead peer alike: three different problems with three different
+// fixes, rendered as one string. The cause is on stderr. The ssh post-quantum banner
+// is noise and is dropped rather than reported as the reason.
+function childFailureReason(err, stderr, fallbackErr) {
+  const lines = String(stderr || "")
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(line => line && !/post-quantum|store now, decrypt later|openssh\.com\/pq|may need to be upgraded|^\*\*/i.test(line));
+  if (lines.length) return lines.join(" | ").slice(0, 300);
+  if (err && err.killed) return "timed out with no answer";
+  const msg = String((err && err.message) || (fallbackErr && fallbackErr.message) || "unknown failure");
+  const afterPreamble = msg.split(/\r?\n/).slice(1).map(l => l.trim()).filter(Boolean).join(" | ");
+  return (afterPreamble || msg.split(/\r?\n/)[0]).slice(0, 300);
 }
 
 function runMedicJson(where) {
@@ -14517,7 +14540,7 @@ function runMedicJson(where) {
     require("child_process").execFile(file, args, {
       cwd: REPO_ROOT, encoding: "utf8", timeout: MEDIC_RUN_TIMEOUT_MS,
       maxBuffer: MEDIC_MAX_BUFFER, windowsHide: true,
-    }, (err, stdout) => {
+    }, (err, stdout, stderr) => {
       try {
         resolve({ source: where, ok: true, ...parseMedicJson(stdout) });
       } catch (parseErr) {
@@ -14525,7 +14548,7 @@ function runMedicJson(where) {
         // is reported as unreachable, not as a box with no findings.
         resolve({
           source: where, ok: false,
-          error: String((err && err.message) || parseErr.message).split("\n")[0].slice(0, 300),
+          error: childFailureReason(err, stderr, parseErr),
           counts: { new: 0, regressed: 0, due: 0, handled: 0, cleared: 0 },
           new: [], regressed: [], due: [], handled: [], cleared: [],
         });
@@ -14546,7 +14569,12 @@ function stampMedicSource(report) {
     ok: report.ok !== false,
     error: report.error || null,
     generatedAt: report.generatedAt || null,
-    counts: report.counts || { new: 0, regressed: 0, due: 0, handled: 0, cleared: 0 },
+    // unreadable and corruptLedgerLines ride along deliberately. The medic counts them
+    // but they are not rows, so they can never appear in needingDecision - and a payload
+    // that drops them lets the page say "every finding has a decision" while the medic
+    // itself is exiting 1 because two of them cannot even be keyed.
+    counts: report.counts || { new: 0, regressed: 0, due: 0, handled: 0, cleared: 0,
+                               unreadable: 0, corruptLedgerLines: 0 },
     new: stamp(report.new),
     regressed: stamp(report.regressed),
     due: stamp(report.due),
@@ -14589,8 +14617,12 @@ app.get("/api/medic", async (req, res) => {
     return res.json({ ...medicCache.payload, cache: { hit: true, ageSeconds: Math.round((Date.now() - medicCache.at) / 1000), ttlSeconds: MEDIC_TTL_MS / 1000 } });
   }
   if (!medicInflight) {
+    const startedAtVersion = medicStateVersion;
     medicInflight = buildMedicPayload()
-      .then(payload => { medicCache = { at: Date.now(), payload }; return payload; })
+      .then(payload => {
+        if (medicStateVersion === startedAtVersion) medicCache = { at: Date.now(), payload };
+        return payload;
+      })
       .finally(() => { medicInflight = null; });
   }
   try {
@@ -14658,17 +14690,31 @@ app.post("/api/medic/ack", requireLocalOnly, (req, res) => {
   const child = require("child_process").execFile(file, args, {
     cwd: REPO_ROOT, encoding: "utf8", timeout: MEDIC_ACK_TIMEOUT_MS,
     maxBuffer: 1024 * 1024, windowsHide: true,
-  }, (err, stdout) => {
+  }, (err, stdout, stderr) => {
     let result = null;
     try { result = parseMedicJson(stdout); } catch { /* fall through to the error below */ }
     if (result && result.ok) {
       // The queue this decision just changed is now stale. Drop the cache rather than
       // serving a page that still lists the finding as undecided.
+      medicStateVersion += 1;
       medicCache = { at: 0, payload: null };
       return res.json({ ok: true, id, decision: decision.action, label: decision.label, source, output: result.output || "" });
     }
-    const detail = (result && result.error) ||
-      String((err && err.message) || "the medic refused the ack").split("\n")[0];
+    // A REFUSAL AND A TIMEOUT ARE NOT THE SAME ANSWER. The helper appends to the ledger
+    // and then reports, so a kill after the append leaves a real decision on file with
+    // nothing here acknowledging it. Calling that "refused" invites a second press and a
+    // second row on an append-only file that is never edited, so it is reported as
+    // UNKNOWN and the page says to go and look instead of guessing.
+    if (!result && err && err.killed) {
+      medicStateVersion += 1;
+      medicCache = { at: 0, payload: null };
+      return res.status(504).json({
+        ok: false, uncertain: true,
+        error: "no answer within " + Math.round(MEDIC_ACK_TIMEOUT_MS / 1000) + "s. The decision MAY already be on "
+             + "the ledger - the write happens before the reply. Re-run the doctor and look before pressing again.",
+      });
+    }
+    const detail = (result && result.error) || childFailureReason(err, stderr, null);
     res.status(422).json({ ok: false, error: detail.slice(0, 600) });
   });
 
