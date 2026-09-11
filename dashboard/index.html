@@ -7021,8 +7021,9 @@ async function loadTrustExtras() {
         false);
     }
   } catch (e) {
-    console.error('loadTrustExtras coverage:', e);
-    setTrustCell('tr-coverage', 'trust-idle', '—', 'coverage-audit.json unreachable', false);
+    console.error('loadTrustExtras coverage (' + phase + '):', e);
+    setTrustCell('tr-coverage', 'trust-idle', '—',
+      'coverage ' + phase + ' failed: ' + (e && e.message ? e.message : String(e)), false);
   }
 
   // ── Medic: what the medic refused to decide for you ───────────────────────
