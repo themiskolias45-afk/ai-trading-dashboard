@@ -311,34 +311,40 @@
 </section>
 
 <!-- TICKER -->
+<!-- LIVE, not hardcoded. Until 2026-09-11 these four tiles were static HTML written on
+     2026-08-19: Bitcoin read $64,116 against a live $77,139 - 17% wrong - and every
+     signal badge was wrong too. This page carries Pricing, Investment and a waitlist,
+     so stale market data shown as live is the fastest way to lose a visitor's trust.
+     server/index.js:11305 already states that /api/signals answers 200 unauthenticated
+     precisely so this page can read it; it simply never did. -->
 <div class="ticker">
   <div class="ticker-item">
     <div>
       <div class="ticker-label">Bitcoin</div>
-      <div class="ticker-price">$64,116</div>
+      <div class="ticker-price" id="tk-btc-price">--</div>
     </div>
-    <div class="ticker-signal sig-buy">BUY</div>
+    <div class="ticker-signal sig-wait" id="tk-btc-sig">--</div>
   </div>
   <div class="ticker-item">
     <div>
       <div class="ticker-label">Gold / XAUUSD</div>
-      <div class="ticker-price">$4,018</div>
+      <div class="ticker-price" id="tk-gold-price">--</div>
     </div>
-    <div class="ticker-signal sig-buy">BUY</div>
+    <div class="ticker-signal sig-wait" id="tk-gold-sig">--</div>
   </div>
   <div class="ticker-item">
     <div>
-      <div class="ticker-label">S&P 500 / SPY</div>
-      <div class="ticker-price">$743</div>
+      <div class="ticker-label">S&amp;P 500</div>
+      <div class="ticker-price" id="tk-spx-price">--</div>
     </div>
-    <div class="ticker-signal sig-sell">SELL</div>
+    <div class="ticker-signal sig-wait" id="tk-spx-sig">--</div>
   </div>
   <div class="ticker-item">
     <div>
-      <div class="ticker-label">VIX Fear Index</div>
-      <div class="ticker-price">18.8</div>
+      <div class="ticker-label">Live status</div>
+      <div class="ticker-price" id="tk-asof" style="font-size:1rem">--</div>
     </div>
-    <div class="ticker-signal sig-wait">CALM</div>
+    <div class="ticker-signal sig-wait" id="tk-gate">--</div>
   </div>
 </div>
 
@@ -357,7 +363,7 @@
       <div class="step">
         <div class="step-num">2</div>
         <h3>Technical Confirmation</h3>
-        <p>RSI, EMA 20/50/200, Bollinger Bands, MACD, ATR, and volume must confirm the setup. Volume must be 1.4× above average.</p>
+        <p>RSI, EMA 20/50/200, Bollinger Bands, MACD and ATR must confirm the setup. Volume confirmation is additionally required for breakout entries.</p>
       </div>
       <div class="step">
         <div class="step-num">3</div>
@@ -378,7 +384,7 @@
   <div class="container">
     <div class="stats">
       <div class="stat">
-        <div class="stat-value">65%+</div>
+        <div class="stat-value" id="tk-stat-gate">--</div>
         <div class="stat-label">Minimum confidence to fire</div>
       </div>
       <div class="stat">
@@ -386,8 +392,8 @@
         <div class="stat-label">Timeframes aligned required</div>
       </div>
       <div class="stat">
-        <div class="stat-value">1%</div>
-        <div class="stat-label">Risk per trade (fixed)</div>
+        <div class="stat-value" id="tk-stat-risk">--</div>
+        <div class="stat-label">Risk per trade</div>
       </div>
       <div class="stat">
         <div class="stat-value">24/7</div>
@@ -426,8 +432,8 @@
       </div>
       <div class="feature">
         <div class="feature-icon">🎯</div>
-        <h3>Partial Profit at 1R</h3>
-        <p>50% of the position is closed at the first profit target. Stop-loss moves to breakeven. Guaranteed profit on every winner before trailing.</p>
+        <h3>Partial Profit at 1R (optional)</h3>
+        <p>An optional partial-close mechanism: half the position can be taken at the first target with the stop moved to breakeven. Disabled by default — the live setting is shown on the dashboard.</p>
       </div>
       <div class="feature">
         <div class="feature-icon">📈</div>
@@ -536,5 +542,87 @@
   }
 </script>
 
+
+<script>
+/* LIVE MARKET DATA ON THE PUBLIC PAGE.
+ *
+ * WHY. Until 2026-09-11 the four tiles and two headline stats were hardcoded HTML from
+ * 2026-08-19. Bitcoin read $64,116 against a live $77,139 (17% wrong), gold was 8.5%
+ * out, the S&P tile showed a SPY price under an S&P 500 label, and all three signal
+ * badges were wrong. This page asks visitors for an email and shows Pricing and
+ * Investment, so stale data presented as live is the fastest possible way to lose them.
+ *
+ * The endpoints were ALREADY public for exactly this. server/index.js:11305 says so:
+ * "Public. Reads only /api/signals, /api/strategy-settings and /api/evidence-board, all
+ * of which already answer 200 unauthenticated." Verified 200/200/200. The page simply
+ * never called them.
+ *
+ * IT NEVER INVENTS A NUMBER. If a fetch fails the tiles keep reading "--" and the status
+ * tile says so. A confident wrong price is worse than an obvious blank - which is the
+ * whole lesson of the thing it replaces.
+ *
+ * Read-only, public routes only. Nothing here can reach a gate, an order or an account.
+ */
+(function () {
+  var fmt = function (n, dp) {
+    if (n === null || n === undefined || !isFinite(n)) return '--';
+    return '$' + Number(n).toLocaleString('en-US',
+      { minimumFractionDigits: dp || 0, maximumFractionDigits: dp || 0 });
+  };
+  var cls = function (sig) {
+    return sig === 'BUY' ? 'ticker-signal sig-buy'
+         : sig === 'SELL' ? 'ticker-signal sig-sell' : 'ticker-signal sig-wait';
+  };
+  var put = function (id, txt) { var e = document.getElementById(id); if (e) e.textContent = txt; };
+
+  function paintAsset(key, priceId, sigId, dp) {
+    return function (d) {
+      var a = d && d[key];
+      if (!a) return;
+      put(priceId, fmt(a.price, dp));
+      var el = document.getElementById(sigId);
+      if (el) {
+        // The confidence is shown WITH the signal. A bare "WAIT" looks like an outage;
+        // "WAIT 40%" reads as the system doing its job, which is what it is doing.
+        el.textContent = a.signal + (typeof a.confidence === 'number' ? ' ' + a.confidence + '%' : '');
+        el.className = cls(a.signal);
+      }
+    };
+  }
+
+  function load() {
+    fetch('/api/signals', { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (d) {
+        paintAsset('btc',  'tk-btc-price',  'tk-btc-sig',  0)(d);
+        paintAsset('gold', 'tk-gold-price', 'tk-gold-sig', 0)(d);
+        paintAsset('spx',  'tk-spx-price',  'tk-spx-sig',  0)(d);
+        var t = d && d.updatedAt ? new Date(d.updatedAt) : null;
+        put('tk-asof', t ? t.toUTCString().slice(17, 22) + ' UTC' : 'live');
+        var g = document.getElementById('tk-gate');
+        if (g) { g.textContent = 'LIVE'; g.className = 'ticker-signal sig-buy'; }
+      })
+      .catch(function () {
+        put('tk-asof', 'unavailable');
+        var g = document.getElementById('tk-gate');
+        if (g) { g.textContent = 'OFFLINE'; g.className = 'ticker-signal sig-wait'; }
+      });
+
+    // The gate and the risk percentage are FACTS ABOUT A RUNNING SYSTEM, so they are read
+    // rather than asserted. The page said "65%+" after the gate moved to 70 on 2026-08-02,
+    // and "1% risk per trade (fixed)" against a live 0.15% - overstating risk by 6.7x.
+    fetch('/api/strategy-settings', { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (c) {
+        if (c && typeof c.confidenceThreshold === 'number') put('tk-stat-gate', c.confidenceThreshold + '%+');
+        if (c && typeof c.riskPercent === 'number') put('tk-stat-risk', c.riskPercent + '%');
+      })
+      .catch(function () { /* tiles keep reading "--" rather than a stale number */ });
+  }
+
+  load();
+  setInterval(load, 60000);
+})();
+</script>
 </body>
 </html>
