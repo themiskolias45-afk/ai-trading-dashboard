@@ -233,6 +233,14 @@ function buildMedic() {
 
   return {
     available: true,
+    /* THE BOX IS STAMPED INSIDE, not just implied by which machine served the file.
+       Both artefacts here are PER-BOX MUTABLE STATE, the exact shape that has cost this
+       fleet four times — most quietly when a git-tracked sleep_baseline.json shipped the
+       laptop's history to the VPS and every VPS doctor run reported it as its own. A
+       filename survives exactly until someone copies it; a field inside does not. Both
+       files are gitignored so neither can travel, and the page prints this name, so a
+       payload from the wrong machine is visible rather than silent. */
+    publishedBy: require('os').hostname(),
     ledgerRows: rows.length,
     distinctFindings: latest.size,
     byAction,
