@@ -7027,10 +7027,19 @@ async function loadTrustExtras() {
   }
 
   // ── Medic: what the medic refused to decide for you ───────────────────────
+  let mphase = 'fetch';
   try {
     const r = await fetch('/dashboard/medic-ledger.json?t=' + Date.now());
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const m = await r.json();
+    if (!r.ok) throw new Error('HTTP ' + r.status + ' from the server');
+    mphase = 'parse';
+    const bodyText = await r.text();
+    let m;
+    try { m = JSON.parse(bodyText); }
+    catch (pe) {
+      throw new Error('served ' + bodyText.length + ' bytes that are not valid JSON'
+        + ' — likely read while being rewritten');
+    }
+    mphase = 'render';
     if (!m.available) {
       setTrustCell('tr-medic', 'trust-idle', 'Unpublished', m.reason || 'no medic ledger', false);
     } else {
