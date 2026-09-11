@@ -114,7 +114,7 @@ $remoteDir = $RemoteRoot + '/' + $day + '/' + $stamp
 
 $sent = 0; $failed = 0; $verified = 0
 foreach ($f in $present) {
-    & scp -o BatchMode=yes -o ConnectTimeout=25 $f.Full ("vps:" + $remoteDir + "/" + $f.Name) 2>&1 | Out-Null
+    & scp -o BatchMode=yes -o ConnectTimeout=25 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 $f.Full ("vps:" + $remoteDir + "/" + $f.Name) 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) { $sent++ } else { Say ("  FAILED to send " + $f.Rel); $failed++ }
     # The size AFTER its own copy. Four of these files are APPEND-ONLY LEDGERS that are
     # written while this runs, so the size measured up at the top is already history by
