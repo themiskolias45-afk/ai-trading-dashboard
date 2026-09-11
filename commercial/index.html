@@ -403,6 +403,61 @@
   </div>
 </div>
 
+<!-- PROOF ─────────────────────────────────────────────────────────────────────
+     THE ACTUAL DIFFERENTIATOR, and it was sitting unused behind a public endpoint.
+     Two sections above, this page asserts "Most signals are rejected — only the
+     strongest setups are taken." That was an unsupported claim on a page asking for
+     money. It is now the one thing here that is PROVEN, live, from
+     /api/evidence-board (public, 200 unauthenticated, verified).
+
+     WHY THIS IS THE IMPROVEMENT AND THE TICKER FIX WAS ONLY A REPAIR. Every competitor
+     landing page says "AI-powered". None of them publish what did NOT work. This system
+     walks every rejected setup forward on real broker bars and prices it, and its
+     evidence board carries 22 curated claims of which NINE read "MEASURED — NO EDGE".
+     Publishing that is not a weakness; it is the only claim on this page that a
+     sceptical reader cannot dismiss, because nobody fakes negative results.
+
+     WHAT IS DELIBERATELY NOT HERE: realised P&L, the closed-trade count and the track
+     record. Those are the owner's to publish, not mine, and the sample is far too small
+     to mean anything yet - the dashboard states that plainly as "16 / 59 to
+     significance". Nothing in this block is a performance claim. -->
+<div class="stats-bg" id="proof">
+  <div class="container">
+    <div style="text-align:center;margin-bottom:28px">
+      <div style="font-size:.72rem;letter-spacing:.18em;color:#8b8fa3;text-transform:uppercase">Proof, not claims</div>
+      <h2 style="margin:10px 0 6px">We publish what didn&rsquo;t work.</h2>
+      <p style="color:#8b8fa3;max-width:640px;margin:0 auto;line-height:1.6">
+        Every setup the filters reject is walked forward on real broker bars and scored, so
+        we can tell whether a filter earned its keep or quietly cost money. The results are
+        kept whether they flatter the system or not.
+      </p>
+    </div>
+    <div class="stats">
+      <div class="stat">
+        <div class="stat-value" id="pf-episodes">--</div>
+        <div class="stat-label">Rejected setups priced on real bars</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="pf-claims">--</div>
+        <div class="stat-label">Claims on the evidence board</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="pf-noedge">--</div>
+        <div class="stat-label">Of them found to have NO EDGE</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="pf-sessions">--</div>
+        <div class="stat-label">Analysis sessions logged</div>
+      </div>
+    </div>
+    <p style="text-align:center;color:#6b6f82;font-size:.74rem;margin-top:20px">
+      Live from this system&rsquo;s own evidence board &middot; <span id="pf-asof">--</span>.
+      These are counts of work done and conclusions recorded. They are not performance
+      figures and not a claim of profitability.
+    </p>
+  </div>
+</div>
+
 <!-- FEATURES -->
 <section id="features">
   <div class="container">
@@ -611,6 +666,27 @@
     // The gate and the risk percentage are FACTS ABOUT A RUNNING SYSTEM, so they are read
     // rather than asserted. The page said "65%+" after the gate moved to 70 on 2026-08-02,
     // and "1% risk per trade (fixed)" against a live 0.15% - overstating risk by 6.7x.
+    // PROOF BLOCK. Counts of work done and conclusions recorded - never P&L.
+    fetch('/api/evidence-board', { cache: 'no-store' })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function (e) {
+        var gt = e && e.gateTotals, ls = e && e.liveSample, cc = (e && e.claimCounts) || {};
+        if (gt && typeof gt.episodes === 'number') put('pf-episodes', gt.episodes.toLocaleString('en-US'));
+        var total = 0, noEdge = 0;
+        Object.keys(cc).forEach(function (k) {
+          total += cc[k];
+          // The label carries an em dash; match on the words so an encoding change
+          // cannot silently zero this number.
+          if (/NO\s*EDGE/i.test(k)) noEdge += cc[k];
+        });
+        if (total) put('pf-claims', String(total));
+        put('pf-noedge', String(noEdge));
+        if (ls && typeof ls.sessions === 'number') put('pf-sessions', ls.sessions.toLocaleString('en-US'));
+        var t = e && e.updatedAt ? new Date(e.updatedAt) : null;
+        put('pf-asof', t ? 'updated ' + t.toUTCString().slice(17, 22) + ' UTC' : 'live');
+      })
+      .catch(function () { put('pf-asof', 'evidence board unavailable'); });
+
     fetch('/api/strategy-settings', { cache: 'no-store' })
       .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
       .then(function (c) {
