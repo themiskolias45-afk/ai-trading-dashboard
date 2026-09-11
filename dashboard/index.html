@@ -7150,8 +7150,172 @@ async function loadTrustExtras() {
   }
 }
 
+/**
+ * THE BOOK — the money the home page never showed.
+ *
+ * Every source here was ALREADY served and already computed; none of this is a new
+ * measurement. Independent fetches via allSettled so a single 401 or a slow route
+ * cannot blank the panel: each cell that has no data says so rather than showing a
+ * zero, because a confident 0.00 where the truth is "unknown" is the failure this
+ * whole dashboard keeps paying for.
+ *
+ * NOTHING HERE CAN BLOCK ANYTHING. It reads and renders. No gate, threshold, setup,
+ * confidence, size, stop, order path, journal write or learning record is reachable.
+ */
+function bkMoney(n, digits) {
+  if (n === null || n === undefined || !isFinite(n)) return '—';
+  const d = digits === undefined ? 2 : digits;
+  return (n > 0 ? '+' : '') + n.toFixed(d);
+}
+function bkClass(n) {
+  if (n === null || n === undefined || !isFinite(n)) return 'bk-idle';
+  return n > 0 ? 'bk-up' : n < 0 ? 'bk-down' : 'bk-flat';
+}
+function bkSet(id, text, cls, note) {
+  const v = document.getElementById(id); const d = document.getElementById(id + '-d');
+  if (v) { v.textContent = text; v.className = 'book-value ' + (cls || 'bk-flat'); }
+  if (d && note !== undefined) d.textContent = note;
+}
+
+/**
+ * Equity with the drawdown shaded underneath, as inline SVG.
+ *
+ * The shaded band is the area between the RUNNING PEAK and the equity line — which is
+ * literally what a drawdown is. Plotting equity on its own hides depth and duration,
+ * and duration is the part that decides whether a system is survivable.
+ */
+function bkDrawCurve(points) {
+  const host = document.getElementById('bk-curve');
+  if (!host) return;
+  if (!points || points.length < 2) {
+    host.innerHTML = '<div style="font-size:.62rem;color:var(--muted);padding:10px 0">'
+      + (points && points.length === 1 ? 'one closed trade — a curve needs at least two'
+                                       : 'no closed trades yet') + '</div>';
+    return;
+  }
+  const W = 1000, H = 150, PAD = 10;
+  let peak = -Infinity; const peaks = points.map(v => { peak = Math.max(peak, v); return peak; });
+  const lo = Math.min(0, Math.min.apply(null, points));
+  const hi = Math.max(0, Math.max.apply(null, peaks));
+  const span = (hi - lo) || 1;
+  const x = i => PAD + (i * (W - 2 * PAD)) / (points.length - 1);
+  const y = v => PAD + (H - 2 * PAD) * (1 - (v - lo) / span);
+
+  const eq   = points.map((v, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1)).join(' ');
+  const band = peaks.map((v, i) => (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(v).toFixed(1)).join(' ')
+             + ' ' + points.slice().reverse().map((v, i) =>
+                 'L' + x(points.length - 1 - i).toFixed(1) + ' ' + y(v).toFixed(1)).join(' ') + ' Z';
+
+  const last = points[points.length - 1];
+  const line = last > 0 ? 'var(--green,#22c55e)' : last < 0 ? 'var(--red,#ef4444)' : 'var(--text,#e6edf3)';
+  const maxDD = points.reduce((m, v, i) => Math.max(m, peaks[i] - v), 0);
+
+  host.innerHTML =
+    '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" height="150" role="img" '
+    + 'aria-label="Cumulative realised equity with drawdown shaded">'
+    + '<line x1="' + PAD + '" y1="' + y(0).toFixed(1) + '" x2="' + (W - PAD) + '" y2="' + y(0).toFixed(1)
+    + '" stroke="var(--border,#2a323d)" stroke-width="1" stroke-dasharray="4 4"/>'
+    + '<path d="' + band + '" fill="var(--red,#ef4444)" fill-opacity="0.16" stroke="none"/>'
+    + '<path d="' + eq + '" fill="none" stroke="' + line + '" stroke-width="2" '
+    + 'stroke-linejoin="round" stroke-linecap="round"/>'
+    + '</svg>';
+
+  const note = document.getElementById('bk-curve-note');
+  if (note) note.textContent = points.length + ' closed · max drawdown ' + maxDD.toFixed(2)
+    + ' · shaded = below running peak';
+}
+
+async function loadBook() {
+  const [jRes, pRes, rRes, robRes, eaRes] = await Promise.allSettled([
+    getJson('/journal?limit=200'),
+    getJson('/mt5/positions'),
+    getJson('/risk-status'),
+    getJson('/robustness-report'),
+    fetch('/dashboard/ea-crt-weekly-review.json?t=' + Date.now()).then(r => r.ok ? r.json() : null),
+  ]);
+  const ok = r => r.status === 'fulfilled' ? r.value : null;
+  const j = ok(jRes), pos = ok(pRes), risk = ok(rRes), rob = ok(robRes), ea = ok(eaRes);
+
+  // ── the closed book: one pass, every derived number from the same rows ──────
+  let closed = [];
+  const rows = j && (j.journal || j.trades || (Array.isArray(j) ? j : []));
+  if (Array.isArray(rows)) {
+    closed = rows.filter(t => t && t.status === 'CLOSED' && t.pnl !== null && t.pnl !== undefined)
+                 .sort((a, b) => String(a.closeTime || a.openTime).localeCompare(String(b.closeTime || b.openTime)));
+  }
+  let run = 0; const curve = closed.map(t => (run += Number(t.pnl) || 0));
+  const net  = closed.length ? run : null;
+  const wins = closed.filter(t => Number(t.pnl) > 0);
+  const gross = closed.reduce((a, t) => Number(t.pnl) > 0 ? a + Number(t.pnl) : a, 0);
+  const lossAbs = closed.reduce((a, t) => Number(t.pnl) < 0 ? a + Math.abs(Number(t.pnl)) : a, 0);
+  const pf  = lossAbs > 0 ? gross / lossAbs : null;
+  const exp = closed.length ? run / closed.length : null;
+  const wr  = closed.length ? (wins.length / closed.length) * 100 : null;
+
+  bkDrawCurve(curve);
+
+  // ── open book ───────────────────────────────────────────────────────────────
+  const allPos = pos ? [].concat(pos.positions || [], pos.executorTrades || []) : null;
+  if (allPos) {
+    const unreal = allPos.reduce((a, p) => a + (Number(p.profit) || 0), 0);
+    const lots = (pos.exposure || []).reduce((a, e) => a + Math.abs(Number(e.netLots) || 0), 0);
+    const hedged = (pos.exposure || []).filter(e => e.hedged).map(e => e.symbol);
+    bkSet('bk-expo', allPos.length + (allPos.length === 1 ? ' position' : ' positions'), 'bk-flat',
+      lots ? lots.toFixed(2) + ' net lots' + (hedged.length ? ' · hedged: ' + hedged.join(', ') : '') : 'flat');
+    bkSet('bk-unreal', bkMoney(unreal), bkClass(unreal), 'open P&L, account currency');
+  } else {
+    bkSet('bk-expo', '—', 'bk-idle', 'positions unreachable');
+    bkSet('bk-unreal', '—', 'bk-idle', 'positions unreachable');
+  }
+
+  if (risk && risk.dailyPnl !== undefined && risk.dailyPnl !== null) {
+    const cl = Number(risk.consecutiveLosses) || 0;
+    bkSet('bk-today', bkMoney(Number(risk.dailyPnl)), bkClass(Number(risk.dailyPnl)),
+      cl + ' of 3 consecutive losses' + (risk.halted ? ' · HALTED' : ''));
+  } else {
+    bkSet('bk-today', '—', 'bk-idle', 'risk status unreachable');
+  }
+
+  // ── engine and EA, never pooled ─────────────────────────────────────────────
+  bkSet('bk-engine', net === null ? '—' : bkMoney(net), bkClass(net),
+    closed.length ? closed.length + ' closed trades' : 'no closed trades');
+  if (ea && ea.current) {
+    bkSet('bk-ea', bkMoney(Number(ea.current.netProfit)), bkClass(Number(ea.current.netProfit)),
+      ea.current.trades + ' trades · trail-OFF era · gold');
+  } else {
+    bkSet('bk-ea', '—', 'bk-idle', 'EA review not published');
+  }
+
+  // ── what is NOT yet known, stated plainly ───────────────────────────────────
+  const mtrl = rob && rob.sharpeRobustness && rob.sharpeRobustness.minTrackRecordLength;
+  if (mtrl && closed.length) {
+    const need = Math.ceil(mtrl);
+    bkSet('bk-track', closed.length + ' / ' + need,
+      closed.length >= need ? 'bk-up' : 'bk-down',
+      closed.length >= need ? 'track record is significant'
+                            : (need - closed.length) + ' more trades to significance');
+  } else {
+    bkSet('bk-track', closed.length ? String(closed.length) : '—', 'bk-idle',
+      mtrl ? 'trades to significance' : 'significance threshold unavailable');
+  }
+  const dsr = rob && rob.sharpeRobustness && rob.sharpeRobustness.sharpePerTrade;
+  bkSet('bk-dsr', (dsr === undefined || dsr === null) ? '—' : Number(dsr).toFixed(3),
+    'bk-flat', (rob && rob.sharpeRobustness && rob.sharpeRobustness.verdict) || 'per trade');
+  bkSet('bk-pf', pf === null ? '—' : pf.toFixed(2), pf === null ? 'bk-idle' : (pf >= 1 ? 'bk-up' : 'bk-down'),
+    'institutional bar is 1.8');
+  bkSet('bk-exp', exp === null ? '—' : bkMoney(exp), bkClass(exp), 'per closed trade');
+  bkSet('bk-wr', wr === null ? '—' : wr.toFixed(1) + '%', 'bk-flat',
+    closed.length ? wins.length + ' of ' + closed.length : '·');
+
+  const sub = document.getElementById('book-sub');
+  if (sub) sub.textContent = 'engine and EA shown separately — never pooled · '
+    + (closed.length ? 'closed book to ' + String(closed[closed.length - 1].closeTime || '').slice(0, 10) : 'no closed trades');
+}
+
 loadTrust();
 loadTrustExtras();
+loadBook();
+setInterval(loadBook, TRUST_REFRESH_MS);
 setInterval(loadTrust, TRUST_REFRESH_MS);
 // On the same cadence as the rest of the strip. A cell that loads once and never again
 // goes stale silently, which is the failure these two were added to remove.
