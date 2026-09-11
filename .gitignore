@@ -246,3 +246,12 @@ tasks/analysis/shadow-boost-latest.txt
 # because a baseline that travels in git makes one box report another box's history as
 # its own - the VPS claimed the laptop's 200 hibernations until 2026-09-11.
 tasks/sleep_baseline.*.json
+
+# Per-box health artefacts written by tasks/coverage_publish.cjs. Both describe THIS
+# machine — its coverage audit, its medic ledger — and both boxes write them. Tracking
+# per-box mutable state in git has cost this fleet four times, most quietly when a
+# tracked sleep_baseline.json shipped the laptop's history to the VPS and every VPS
+# doctor run reported it as its own: a real-looking measurement about the wrong machine.
+# Untracked here BEFORE the peer ever tracked them, so no checkout can delete a copy.
+dashboard/coverage-audit.json
+dashboard/medic-ledger.json
