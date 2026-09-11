@@ -210,15 +210,27 @@ function plateauEvidence(spec) {
  * WHY. This was an inline fs.readdirSync(LAB_DIR) inside redeflate(), and redeflate()
  * runs for EVERY report judge() looks at. Measured 2026-09-11 on the laptop: the
  * directory holds 6,569 files, one listing-and-filter costs ~11 ms, and the scan did it
- * 6,569 times — 73.0 s of the run spent re-counting a number that cannot change while
- * the scan is running. Nothing writes an assessment during a scan, and the one file a
- * real (non-dry) run does append, _promotable.jsonl, is excluded by the `_` prefix this
- * very filter applies.
+ * 6,569 times — 73.0 s per run spent re-counting the same directory.
  *
- * IT CANNOT CHANGE WHAT CLEARS THE BAR. labTrials feeds `labScope` only, which is
- * DISCLOSURE — printed at :290 and :504 and explicitly labelled "the bar uses FAMILY
- * scope by design". The judgement uses `trials` from registry.trialsFor(). Equivalence
- * was verified over every report before this shipped, not reasoned about.
+ * THIS IS A REAL BEHAVIOUR CHANGE AND THE FIRST VERSION OF THIS COMMENT DENIED IT.
+ * It claimed "nothing writes an assessment during a scan". That is FALSE: the lab drain
+ * adds assessments every 15 minutes and a scan takes 8-16, so the directory grows
+ * underneath a run. The equivalence test caught the lie — over 6,585 reports it found
+ * 744 labTrials/labScope mismatches, and re-running it while the directory was stable
+ * (254 reports, count 6593 before and after) gave ZERO on all three. So the entire
+ * difference is growth mid-run, and nothing else.
+ *
+ * KEPT, BECAUSE ONE COUNT PER SCAN IS THE MORE DEFENSIBLE NUMBER. The old behaviour
+ * deflated candidates judged early in a run against a smaller lab than candidates judged
+ * late in the SAME run, so two rows of one report were not comparable with each other.
+ * A single snapshot taken at the start is internally consistent. It can lag the
+ * directory by whatever arrives during the scan; that is stated here rather than
+ * discovered later.
+ *
+ * IT CANNOT CHANGE WHAT CLEARS THE BAR, AND THAT WAS MEASURED, NOT ASSUMED. labTrials
+ * feeds `labScope` only, which is DISCLOSURE — printed at :290 and :504 and explicitly
+ * labelled "the bar uses FAMILY scope by design". The judgement uses `trials` from
+ * registry.trialsFor(). Across all 6,585 reports, pass mismatches = 0.
  *
  * PER PROCESS, NOT PER SCAN, DELIBERATELY. lab_promote is a short-lived CLI: it counts,
  * scans, prints and exits. A long-lived caller would want invalidation, so if this is
