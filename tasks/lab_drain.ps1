@@ -130,8 +130,59 @@ try {
     # that clears it, STAGES the candidate and sends one Telegram. It stages; it
     # never promotes. No gate, threshold, size or stop is reachable from it, and
     # each candidate is notified once ever, keyed by its spec hash.
-    $prom = & $node (Join-Path $Proj 'tasks/lab_promote.cjs') 2>&1
-    $promText = ($prom | Out-String).Trim()
+    # THE PROMOTE SCAN IS UNBOUNDED, AND IT WAS HOLDING THE WHOLE TASK OPEN.
+    # Measured 2026-09-11. GENERATE and DRAIN finish in 2-3 seconds and log
+    # "drained 8 (exit 0)". Then this call never returns: still running at 41 minutes
+    # with ZERO bytes of output. MEASURED TO COMPLETION LATER: 751s - twelve and a half
+    # minutes - against a registry of 7,078 trials. That is not unbounded, it is
+    # MARGINAL: 751s of work on a 900s cadence, so any slowdown overruns the next tick
+    # and an occasional one overruns PT20M entirely. The task's PT20M
+    # limit then killed the whole instance, so every :24 and :54 tick was refused by
+    # IgnoreNew and this "15-minute" cycle actually ran every THIRTY minutes.
+    #
+    # It is NOT the notify. `--list` returns in 0.2s; `--dry-run` - the same scan with
+    # no notification - was still running at 90s; and sendTelegram already carries its
+    # own 15s timeout. The cost is in the scan itself.
+    #
+    # Bounded HERE rather than "fixed" in the scanner, because why walking 7,078 trials
+    # costs minutes is a real question that deserves its own measurement, and guessing
+    # at it inside a scanner that decides what gets staged is not a safe thing to do at
+    # the end of a session.
+    #
+    # THE CAP IS SET ABOVE THE MEASURED COST ON PURPOSE. 960s clears the observed 751s
+    # with headroom and still ends the task 240s short of the PT20M kill, so promotion
+    # COMPLETES in the normal case and the task stops dying in the bad one. A tighter
+    # cap - 240s was the first attempt - would have silently disabled promotion
+    # altogether, which is a regression dressed as a fix.
+    #
+    # And it SAYS SO when it cuts the scan short. A promotion that silently stops
+    # happening is precisely the failure this repo keeps paying for.
+    $PROMOTE_CAP_SEC = 960
+    $promOut = Join-Path $Proj 'tasks\logs\lab_promote_last.txt'
+    $promErr = Join-Path $Proj 'tasks\logs\lab_promote_last.err'
+    $promText = ''
+    try {
+        $pp = Start-Process -FilePath $node -ArgumentList (Join-Path $Proj 'tasks/lab_promote.cjs') `
+              -WorkingDirectory $Proj -PassThru -WindowStyle Hidden `
+              -RedirectStandardOutput $promOut -RedirectStandardError $promErr
+        if ($pp.WaitForExit($PROMOTE_CAP_SEC * 1000)) {
+            if (Test-Path $promOut) { $promText = (Get-Content $promOut -Raw) }
+            if ([string]::IsNullOrWhiteSpace($promText) -and (Test-Path $promErr)) {
+                $promText = (Get-Content $promErr -Raw)
+            }
+            if ($null -ne $promText) { $promText = $promText.Trim() }
+        } else {
+            # Stop only this child. The drain's own work is already done and logged.
+            try { Stop-Process -Id $pp.Id -Force -Confirm:$false } catch {}
+            Write-Log ("promote: SCAN EXCEEDED " + $PROMOTE_CAP_SEC + "s AND WAS STOPPED - " +
+                "nothing was staged or notified this tick. The drain above still ran. " +
+                "This is the known unbounded lab_promote scan, not a new fault.")
+            $promText = ''
+        }
+    } catch {
+        Write-Log ('promote: could not be started - ' + $_.Exception.Message)
+        $promText = ''
+    }
     if ($promText -match 'checked\s+(\d+).*?(\d+) cleared the bar,\s*(\d+) notified') {
         $clearedN = [int]$Matches[2]; $notifiedN = [int]$Matches[3]
         # Silent unless something actually cleared. A line every 15 minutes saying
@@ -143,7 +194,10 @@ try {
                 if ($t -match '^STAGED') { Write-Log ('  ' + $t) }
             }
         }
-    } else {
+    } elseif (-not [string]::IsNullOrWhiteSpace($promText)) {
+        # Only an UNPARSEABLE non-empty output is a mystery. An empty one means the cap
+        # above already stopped it and already said so - saying "could not parse" there
+        # too would report one event as two different faults.
         Write-Log 'promote: could not parse its output - investigate'
     }
 
