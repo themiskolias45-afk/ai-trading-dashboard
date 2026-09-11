@@ -286,7 +286,15 @@ function buildMedic() {
     ledgerRows: rows.length,
     distinctFindings: latest.size,
     byAction,
+    // Which question the count answers. 'doctor' = escalations the doctor STILL reports.
+    // 'ledger' = every escalation ever recorded, which over-counts and says so.
+    basis: cur ? 'doctor' : 'ledger',
+    basisAgeHours: cur ? cur.ageHours : null,
+    doctorFindings: cur ? cur.data.totalFindings : null,
     openCount: open.length,
+    escalatedOnLedger: escalatedOnLedger.length,
+    clearedSinceEscalated: clearedButEscalated.length,
+    clearedButEscalated,
     closedCount: [...latest.values()].filter(r => CLOSED_ACTIONS.includes(r.action)).length,
     open,
     lastDecisionAt: newestTs,
