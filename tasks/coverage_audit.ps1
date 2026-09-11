@@ -782,5 +782,31 @@ $marker = "[exit $exitCode]"
 # Appended, never rewritten: this log is append-only by design.
 try { $marker | Out-File -FilePath $logPath -Encoding utf8 -Append } catch { }
 
+# ── Publish this report so the dashboard can show it ─────────────────────────────
+# WHY HERE AND NOT ON A SCHEDULER OF ITS OWN. It publishes exactly when the thing it
+# reports changes, which is this script finishing. A new scheduled task would be a
+# config change on two boxes, and scheduled-task config is what has bitten this fleet
+# repeatedly - LogonType Interactive silently not running, RunLevel Limited revoking
+# append, the battery flag Windows refuses to set, task history off so LastTaskResult
+# was the only witness. Nothing new to register is the safer shape.
+#
+# WHAT IT PUBLISHES AND WHY IT MATTERS. Until 2026-09-11 this audit had no surface at
+# all: 103 /api routes, not one mentioning coverage, so its 88 checks lived only in
+# this log. Meanwhile the dashboard's top-of-page "System" cell read the HEALER's 9
+# checks and printed "Healthy" while this audit held three REDs.
+#
+# WRAPPED, SILENCED, AND UNABLE TO FAIL THIS SCRIPT, DELIBERATELY. $exitCode above is
+# load-bearing - server/ai_work_ledger.js reads it, and 1 means A RED FINDING, not a
+# crash. A reporting artefact must never be able to change that verdict or to write a
+# byte into the audit's own stdout, which is piped to the log further up.
+try {
+    $publisher = Join-Path $Proj 'tasks\coverage_publish.cjs'
+    if (Test-Path $publisher) {
+        $nodeExe = (Get-Command node -ErrorAction SilentlyContinue).Source
+        if (-not $nodeExe) { $nodeExe = 'C:\Program Files\nodejs\node.exe' }
+        if (Test-Path $nodeExe) { & $nodeExe $publisher *> $null }
+    }
+} catch { }
+
 Write-Output $marker
 exit $exitCode
