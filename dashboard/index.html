@@ -7298,9 +7298,16 @@ async function loadBook() {
     bkSet('bk-track', closed.length ? String(closed.length) : '—', 'bk-idle',
       mtrl ? 'trades to significance' : 'significance threshold unavailable');
   }
-  const dsr = rob && rob.sharpeRobustness && rob.sharpeRobustness.sharpePerTrade;
-  bkSet('bk-dsr', (dsr === undefined || dsr === null) ? '—' : Number(dsr).toFixed(3),
-    'bk-flat', (rob && rob.sharpeRobustness && rob.sharpeRobustness.verdict) || 'per trade');
+  // LABEL IT WHAT IT IS. This cell first read "Deflated Sharpe 0.203" — wrong, and only
+  // visible by looking at the rendered page. sharpe-robustness.json holds THREE different
+  // numbers and 0.203 is `sharpePerTrade`, which report.html correctly calls "Sharpe/trade".
+  // The deflation-aware figure is `psr` (0.99999). Mislabelling a risk metric on a trading
+  // dashboard is the kind of quiet wrongness this whole page exists to stop.
+  const sr = rob && rob.sharpeRobustness && rob.sharpeRobustness.sharpePerTrade;
+  const psr = rob && rob.sharpeRobustness && rob.sharpeRobustness.psr;
+  bkSet('bk-dsr', (sr === undefined || sr === null) ? '—' : Number(sr).toFixed(3), 'bk-flat',
+    (psr === undefined || psr === null ? '' : 'PSR ' + (Number(psr) * 100).toFixed(1) + '% · ')
+    + ((rob && rob.sharpeRobustness && rob.sharpeRobustness.verdict) || 'per trade'));
   bkSet('bk-pf', pf === null ? '—' : pf.toFixed(2), pf === null ? 'bk-idle' : (pf >= 1 ? 'bk-up' : 'bk-down'),
     'institutional bar is 1.8');
   bkSet('bk-exp', exp === null ? '—' : bkMoney(exp), bkClass(exp), 'per closed trade');
