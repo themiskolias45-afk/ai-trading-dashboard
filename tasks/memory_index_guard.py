@@ -75,7 +75,7 @@ def memory_dir():
 
 
 def say(msg):
-    line = "[%sZ] %s" % (datetime.datetime.utcnow().isoformat(timespec="seconds"), msg)
+    line = "[%s] %s" % (datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"), msg)
     print(line)
     try:
         with open(LOG, "a", encoding="utf-8") as fh:
@@ -203,7 +203,7 @@ def main(argv):
     say("  ok: chunks %s -> %s across %d files" % (before, after, len(files)))
     write_stamp({
         "indexedUpToMtime": newest,
-        "indexedAt": datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "indexedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
         "files": len(files),
         "chunksBefore": before,
         "chunksAfter": after,
