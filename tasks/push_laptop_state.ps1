@@ -77,6 +77,76 @@ $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
 $day = Get-Date -Format 'yyyyMMdd'
 Say ("push_laptop_state " + $(if ($DryRun) { '[DRY RUN]' } else { '[EXECUTE]' }) + " -> vps:" + $RemoteRoot)
 
+# ── THE LAPTOP'S LIVE STATE ──────────────────────────────────────────────────────────
+#
+# THE LINK IS ONE-WAY. The VPS cannot reach this machine - PEER_HEARTBEAT_EXPECT exists
+# precisely because the laptop is not reachable from the outside - so the VPS can never
+# poll the laptop for its live state. On 2026-09-11 it was blind to this box for 7h28m.
+#
+# Everything above is HISTORY: learning, journal, the database, the ledgers. None of it is
+# what get_fleet_status actually compares, which is the live gate, the live signals and
+# the live risk state. So one snapshot of those three endpoints rides along with the rest.
+#
+# IT IS ALWAYS WRITTEN, even when the server is down. A missing snapshot and a stale one
+# must be distinguishable on the far box, and `capturedAt` is the field that makes an
+# outage visible on the VPS AS IT HAPPENS rather than in hindsight. A skipped write would
+# leave yesterday's file sitting there looking current.
+#
+# VERBATIM. Each response is embedded as the TEXT the endpoint returned, never parsed and
+# re-serialised - ConvertTo-Json defaults to depth 2 and would silently flatten these.
+# The only parse is a validity CHECK whose result is thrown away.
+#
+# It then inherits every guard the other eight files get: the 0-byte refusal, the dated
+# folder per run, and VERIFY BY READING BACK.
+$snapRel  = 'tasks\laptop_state_snapshot.json'
+$snapFull = Join-Path $Repo $snapRel
+
+function Get-EndpointRaw([string]$url) {
+    try {
+        $resp = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
+        $body = [string]$resp.Content
+        if ([string]::IsNullOrWhiteSpace($body)) { return $null }
+        $null = $body | ConvertFrom-Json    # validity check only; the result is discarded
+        return $body.Trim()
+    } catch { return $null }
+}
+
+$capturedAt  = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+$rawSettings = Get-EndpointRaw 'http://127.0.0.1:3001/api/strategy-settings'
+$rawSignals  = Get-EndpointRaw 'http://127.0.0.1:3001/api/signals'
+$rawRisk     = Get-EndpointRaw 'http://127.0.0.1:3001/api/risk-status'
+
+$missing = @()
+if (-not $rawSettings) { $missing += 'strategy-settings' }
+if (-not $rawSignals)  { $missing += 'signals' }
+if (-not $rawRisk)     { $missing += 'risk-status' }
+
+$snap = New-Object System.Text.StringBuilder
+[void]$snap.AppendLine('{')
+[void]$snap.AppendLine('  "capturedAt": "' + $capturedAt + '",')
+[void]$snap.AppendLine('  "box": "laptop",')
+if ($missing.Count) {
+    [void]$snap.AppendLine('  "captureError": "unreachable or invalid JSON: ' + ($missing -join ', ') + '",')
+}
+[void]$snap.AppendLine('  "strategySettings": ' + $(if ($rawSettings) { $rawSettings } else { 'null' }) + ',')
+[void]$snap.AppendLine('  "signals": '          + $(if ($rawSignals)  { $rawSignals }  else { 'null' }) + ',')
+[void]$snap.AppendLine('  "riskStatus": '       + $(if ($rawRisk)     { $rawRisk }     else { 'null' }))
+[void]$snap.AppendLine('}')
+
+# NO BOM. PowerShell 5.1's Out-File and Set-Content -Encoding utf8 both write one, and a
+# BOM ahead of a JSON document is exactly the kind of silent breakage that cost this fleet
+# a VPS sizing reset once already.
+try {
+    [System.IO.File]::WriteAllText($snapFull, $snap.ToString(), (New-Object System.Text.UTF8Encoding($false)))
+    $null = (Get-Content $snapFull -Raw) | ConvertFrom-Json
+    if ($missing.Count) { Say ("  snapshot written WITH captureError (" + ($missing -join ', ') + ") - sending it anyway, on purpose") }
+    else                { Say ("  snapshot written: all three endpoints captured at " + $capturedAt) }
+} catch {
+    Say ("  SNAPSHOT WRITE FAILED: " + $_.Exception.Message)
+}
+
+$Files += $snapRel
+
 $present = @()
 foreach ($rel in $Files) {
     $full = Join-Path $Repo $rel
