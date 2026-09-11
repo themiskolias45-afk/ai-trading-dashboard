@@ -416,14 +416,34 @@ def index_brain(client, model, rebuild: bool = False):
         chunks = [c for c in chunks if c]
         for ci, chunk in enumerate(chunks):
             cid = f"{base}_c{ci}"
-            if cid in existing_ids:
-                continue
-            new_docs.append(f"{header}\n\n{chunk}" if header else chunk)
-            new_ids.append(cid)
-            new_metas.append({
+            doc = f"{header}\n\n{chunk}" if header else chunk
+            chash = _hash_doc(doc)
+            meta = {
                 "source": "brain", "file": md.name, "name": str(name),
                 "description": str(desc)[:300], "type": str(mtype), "chunk": ci,
-            })
+                "contentHash": chash, "superseded": False,
+            }
+            if cid not in existing_ids:
+                new_docs.append(doc)
+                new_ids.append(cid)
+                new_metas.append(meta)
+            elif refresh_changed and prior_hash.get(cid) != chash:
+                # EDITED MEMORY. Refreshed IN PLACE — update, never delete. Ids here are
+                # path-based (brain_<stem>_c<n>), so without this an edited file keeps
+                # serving its OLD text forever and only --rebuild replaced it, which is
+                # the non-atomic operation that emptied this index on 2026-09-01.
+                upd_docs.append(doc)
+                upd_ids.append(cid)
+                upd_metas.append(meta)
+
+        # A file that got SHORTER leaves higher-numbered chunks behind holding text the
+        # memory no longer says. They are NOT deleted — nothing here is. They are marked
+        # superseded so retrieval stops returning them while the row itself survives.
+        if refresh_changed:
+            ci = len(chunks)
+            while f"{base}_c{ci}" in existing_ids:
+                stale_ids.append(f"{base}_c{ci}")
+                ci += 1
 
     if new_docs:
         batch = 64
