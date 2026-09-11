@@ -245,10 +245,7 @@ function redeflate(report) {
   // is disclosed, and the reader judges the gap.
   let labTrials = null, labScope = null;
   try {
-    const dir = LAB_DIR;
-    labTrials = fs.existsSync(dir)
-      ? fs.readdirSync(dir).filter(f => f.endsWith('.json') && !f.startsWith('_')).length
-      : null;
+    labTrials = labAssessmentCount();
     if (labTrials && labTrials > 1) {
       const sr0Lab = expectedMaxSharpe(labTrials, varTrial);
       labScope = probabilisticSharpe(sr, sr0Lab, T, all.skew, all.kurt);
