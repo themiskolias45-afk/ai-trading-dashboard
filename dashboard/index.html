@@ -7052,8 +7052,9 @@ async function loadTrustExtras() {
         false);
     }
   } catch (e) {
-    console.error('loadTrustExtras medic:', e);
-    setTrustCell('tr-medic', 'trust-idle', '—', 'medic-ledger.json unreachable', false);
+    console.error('loadTrustExtras medic (' + mphase + '):', e);
+    setTrustCell('tr-medic', 'trust-idle', '—',
+      'medic ' + mphase + ' failed: ' + (e && e.message ? e.message : String(e)), false);
   }
 }
 
