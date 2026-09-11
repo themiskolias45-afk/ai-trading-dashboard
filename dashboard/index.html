@@ -7043,12 +7043,27 @@ async function loadTrustExtras() {
     if (!m.available) {
       setTrustCell('tr-medic', 'trust-idle', 'Unpublished', m.reason || 'no medic ledger', false);
     } else {
+      // COUNT WHAT IS STILL TRUE. `basis: doctor` means these escalations are ones the
+      // doctor STILL reports; `ledger` means nobody has run the medic recently enough to
+      // say, so this is every escalation ever recorded and it over-counts. Measured
+      // 2026-09-11: the ledger said 7 while the doctor reported 3, because four had been
+      // fixed and medic.cjs had already moved them to CLEARED. The basis is shown rather
+      // than assumed, because the difference between "2 waiting" and "7 waiting" is the
+      // difference between a cell worth reading and one worth ignoring.
       const open = m.openCount || 0;
       const boxes = [...new Set((m.open || []).map(f => f.box))].join(', ');
+      const byDoctor = m.basis === 'doctor';
+      const cleared = m.clearedSinceEscalated || 0;
+      const detail = open
+        ? 'waiting on you' + (boxes ? ' — ' + boxes : '') + ' · open the Medic tab'
+            + (byDoctor && cleared ? ' (' + cleared + ' more already cleared)' : '')
+        : byDoctor
+            ? 'doctor reports ' + (m.doctorFindings === null ? '?' : m.doctorFindings)
+              + ' findings, none escalated'
+            : m.distinctFindings + ' findings, all decided';
       setTrustCell('tr-medic', open ? 'trust-warn' : 'trust-ok',
         open ? String(open) + ' escalated' : 'Clear',
-        open ? 'waiting on you' + (boxes ? ' — ' + boxes : '') + ' · open the Medic tab'
-             : m.distinctFindings + ' findings, all decided',
+        detail + (byDoctor ? '' : ' · LEDGER COUNT, medic not run recently — may over-count'),
         false);
     }
   } catch (e) {
