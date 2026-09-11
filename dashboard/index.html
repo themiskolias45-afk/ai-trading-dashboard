@@ -969,6 +969,28 @@
         <div class="trust-value trust-idle" id="tr-actions">—</div>
         <div class="trust-detail" id="tr-actions-d">checking…</div>
       </div>
+      <!-- COVERAGE. The System cell above reads /api/system-plan's `healthy`, which is the
+           HEALER's 9 checks — so it printed "Healthy" on 2026-09-11 while the coverage
+           audit was holding three REDs. That audit is 88 checks, the widest either box
+           runs, and until now it had NO surface anywhere: 103 /api routes and not one
+           mentions coverage, so its findings lived only in a 663 KB log somebody had to
+           open. Published as a static file by tasks/coverage_publish.cjs and read from
+           /dashboard, exactly as halt-coverage.json and mt5-runtime-status.json already
+           are — which is why this needs no server route and no restart. -->
+      <div class="trust-cell">
+        <div class="trust-label">Coverage</div>
+        <div class="trust-value trust-idle" id="tr-coverage">—</div>
+        <div class="trust-detail" id="tr-coverage-d">checking…</div>
+      </div>
+      <!-- MEDIC. "Needs You" counts system-plan's actionItems, which was 0 on 2026-09-11
+           while the medic ledger held SEVEN findings escalated precisely because they are
+           the user's call and not the medic's. A cell that reads zero while seven things
+           wait is worse than no cell. -->
+      <div class="trust-cell">
+        <div class="trust-label">Medic</div>
+        <div class="trust-value trust-idle" id="tr-medic">—</div>
+        <div class="trust-detail" id="tr-medic-d">checking…</div>
+      </div>
     </div>
   </a>
 
