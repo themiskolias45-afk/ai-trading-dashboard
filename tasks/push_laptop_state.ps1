@@ -130,8 +130,8 @@ $probe = "$env:TEMP\pls_verify.ps1"
 $lines = @("`$d = '" + ($remoteDir -replace '/','\') + "'")
 $lines += 'if(Test-Path $d){ Get-ChildItem $d | ForEach-Object { Write-Output ($_.Name + "=" + $_.Length) } } else { Write-Output "MISSING_DIR" }'
 $lines -join "`r`n" | Out-File $probe -Encoding utf8
-& scp -o BatchMode=yes -o ConnectTimeout=20 $probe 'vps:C:/ai-trading-dashboard/tasks/pls_verify.ps1' 2>&1 | Out-Null
-$remote = & ssh -o BatchMode=yes -o ConnectTimeout=25 vps 'powershell -NoProfile -ExecutionPolicy Bypass -File C:\ai-trading-dashboard\tasks\pls_verify.ps1' 2>&1
+& scp -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 $probe 'vps:C:/ai-trading-dashboard/tasks/pls_verify.ps1' 2>&1 | Out-Null
+$remote = & ssh -o BatchMode=yes -o ConnectTimeout=25 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 vps 'powershell -NoProfile -ExecutionPolicy Bypass -File C:\ai-trading-dashboard\tasks\pls_verify.ps1' 2>&1
 
 $remoteSizes = @{}
 foreach ($line in $remote) {
