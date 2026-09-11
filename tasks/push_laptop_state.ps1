@@ -103,6 +103,13 @@ $sent = 0; $failed = 0; $verified = 0
 foreach ($f in $present) {
     & scp -o BatchMode=yes -o ConnectTimeout=25 $f.Full ("vps:" + $remoteDir + "/" + $f.Name) 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) { $sent++ } else { Say ("  FAILED to send " + $f.Rel); $failed++ }
+    # The size AFTER its own copy. Four of these files are APPEND-ONLY LEDGERS that are
+    # written while this runs, so the size measured up at the top is already history by
+    # the time scp finishes. Captured per file, immediately after its own transfer, so
+    # the window below is as tight as it can be.
+    $post = $f.Size
+    try { $post = (Get-Item $f.Full).Length } catch { }
+    $f | Add-Member -NotePropertyName SizeAfter -NotePropertyValue $post -Force
 }
 
 # VERIFY BY READING BACK. An exit code is not evidence.
