@@ -654,6 +654,31 @@ async function main() {
       "/api/peer-heartbeat": { peers: [{ box: "THEMIS", ageSeconds: 120, state: { gate: 50 } }] },
     }, base => doctor.checkPeerViaHeartbeat(70, base))));
 
+  // NULL IS NOT ZERO, and all three of these are needed to say so.
+  // The peer's monitor sends null whenever its own /api/ai-work call fails, and
+  // `null > 0` is false - so a real backlog of undecided proposals reported NOTHING and
+  // the finding flickered in and out between heartbeats. Measured 2026-09-11 by two
+  // consecutive reads of the same box disagreeing.
+  check("peer has undecided proposals -> AMBER naming the count",
+    { severity: "AMBER", box: "peer THEMIS", match: /2 AI proposal\(s\) nobody has decided/i },
+    await isolate(() => withStub({
+      "/api/peer-heartbeat": { peers: [{ box: "THEMIS", ageSeconds: 120, state: { unreviewedProposals: 2 } }] },
+    }, base => doctor.checkPeerViaHeartbeat(70, base))));
+
+  check("peer proposal count NULL -> AMBER saying UNKNOWN, never silence",
+    { severity: "AMBER", box: "peer THEMIS", match: /count MISSING from the peer heartbeat/i },
+    await isolate(() => withStub({
+      "/api/peer-heartbeat": { peers: [{ box: "THEMIS", ageSeconds: 120, state: { unreviewedProposals: null } }] },
+    }, base => doctor.checkPeerViaHeartbeat(70, base))));
+
+  // The other half of the same rule: a measured ZERO is good news and must stay quiet.
+  // Without this case the fix above would just be noise on every healthy beat.
+  check("peer proposal count 0 -> SILENCE, because zero is a real answer",
+    { none: true },
+    await isolate(() => withStub({
+      "/api/peer-heartbeat": { peers: [{ box: "THEMIS", ageSeconds: 120, state: { unreviewedProposals: 0 } }] },
+    }, base => doctor.checkPeerViaHeartbeat(70, base))));
+
   // ── verdict ──────────────────────────────────────────────────────────────
   // ── the strategy lab, whose every failure mode is silence ────────────────
   // Each branch is forced. On a healthy box checkLab prints nothing, and "nothing"

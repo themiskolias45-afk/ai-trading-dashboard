@@ -174,8 +174,19 @@ try {
                     if ($health.connected) { $live += $tag } else { $silent += $tag }
                 } catch { $silent += $tag }
             }
+            # THE 5-SECOND TIMEOUT WAS THE BUG, and the swallowed error hid it.
+            # /api/ai-work runs 4.5-6s uncached (aiWorkLedger.build was sync and uncached
+            # until 2026-09-10), so this timed out on a slow read, the empty catch threw the
+            # reason away, and $null went out on the wire. The far end read null as ZERO and
+            # the "N proposals nobody has decided" finding vanished and reappeared between
+            # beats. Null is now only ever sent for a genuine failure, the failure is LOGGED,
+            # and the window is wide enough that a slow-but-working route is not a failure.
             $unreviewed = $null
-            try { $unreviewed = (Invoke-RestMethod -Uri "$local/api/ai-work" -TimeoutSec 5).totals.unreviewed } catch { }
+            try {
+                $unreviewed = (Invoke-RestMethod -Uri "$local/api/ai-work" -TimeoutSec 20).totals.unreviewed
+            } catch {
+                Write-MonitorLog ('unreviewed-proposal count NOT gathered, sending null - ' + $_.Exception.Message)
+            }
             $selfState = @{
                 gate                = $settings.confidenceThreshold
                 settingsError       = $settings.settingsError

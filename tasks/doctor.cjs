@@ -1459,6 +1459,23 @@ async function checkPeerViaHeartbeat(localGate, base = "http://localhost:3001") 
       finding("AMBER", box, `${state.unreviewedProposals} AI proposal(s) nobody has decided (${asOf})`,
         "an agent whose correct call goes unread costs exactly what a failing agent costs",
         "on the peer: node tasks/ai_decide.cjs --list");
+    } else if (state.unreviewedProposals === null || state.unreviewedProposals === undefined) {
+      // NULL IS NOT ZERO, and reading it as zero made this finding FLICKER.
+      // Measured 2026-09-11: the peer's monitor builds this number by calling its own
+      // /api/ai-work with a 5-SECOND timeout, against a route that runs 4.5-6s uncached.
+      // On a slow read the catch swallows it and sends null, the receiver's finiteOrNull
+      // keeps it null, and `null > 0` is false - so the finding for real undecided
+      // proposals SILENTLY DISAPPEARED and came back on the next beat. Two consecutive
+      // reads of the same box disagreed, which is how this was found at all.
+      //
+      // An unmeasured count must never be reported as "none". That is the same failure
+      // as a green check over a dead component, and it is exactly what the medic exists
+      // to make impossible.
+      finding("AMBER", box, "unreviewed-proposal count MISSING from the peer heartbeat",
+        `the peer sent null rather than a number (${asOf}), so how many of its proposals are ` +
+        "undecided is UNKNOWN here - which is not the same as none, and must not read as none. " +
+        "Its monitor sends null whenever its own /api/ai-work call fails or times out",
+        "on the peer: node tasks/ai_decide.cjs --list   (and confirm /api/ai-work answers inside the monitor's timeout)");
     }
   }
 }
