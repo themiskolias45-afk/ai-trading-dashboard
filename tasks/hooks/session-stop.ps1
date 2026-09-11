@@ -134,3 +134,40 @@ try {
 } catch {
     # Write failure must never crash the hook — state file is a convenience, not a blocker.
 }
+
+# --- 5. Make any memory written this session FINDABLE ---
+#
+# WHY HERE. The memory corpus is reindexed once a day by tasks/brain_sync.cjs (04:10), so
+# a memory written at 18:00 was not retrievable for ten hours. Measured 2026-09-11: four
+# memories were missing from the index, every one written after that morning's run.
+# CLAUDE.md says "Rebuild after writing a memory: python tasks/rag_index.py --source
+# brain" — a rule enforced by remembering, which this repo's own doctrine calls
+# decoration. This is its enforcer, at the moment the memory was actually written.
+#
+# NOTHING CAN BE LOST BY IT. The guard runs INCREMENTAL only and never --rebuild (that
+# deletes the collection before re-adding, and a run killed in that window left the index
+# EMPTY on 2026-09-01 while reporting a healthy-looking count). It reads chunk counts
+# before and after and shouts if the index SHRANK, which incremental indexing cannot
+# cause. And the .md files are the memory — this index is derived from them and can be
+# rebuilt at any time, so an index failure is never a memory loss.
+#
+# IT CANNOT HANG THE SESSION. It exits in ~0.3s when no memory changed. When there IS
+# work it needs ~35s to load the embedding model, so this waits a bounded 90s and then
+# lets it finish DETACHED rather than killing it — an interrupted incremental add is
+# harmless, but so is letting it complete, and its own log records the outcome either way.
+try {
+    $guard = Join-Path $proj 'tasks\memory_index_guard.py'
+    if (Test-Path $guard) {
+        $py = $env:SMARTENTRY_PYTHON
+        if (-not $py -or -not (Test-Path $py)) { $py = (Get-Command python -ErrorAction SilentlyContinue).Source }
+        if ($py) {
+            $p = Start-Process -FilePath $py -ArgumentList @($guard) `
+                    -WorkingDirectory $proj -PassThru -WindowStyle Hidden -NoNewWindow
+            if (-not $p.WaitForExit(90000)) {
+                Write-Host "memory index still running - left to finish in the background (tasks/logs/memory_index.txt)" -ForegroundColor DarkGray
+            }
+        }
+    }
+} catch {
+    # Reporting only. A memory that is slow to become searchable must never fail a session.
+}
