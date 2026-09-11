@@ -540,11 +540,11 @@ function checkLab(root = ROOT) {
   } else {
     const ageMin = (Date.now() - fs.statSync(drainLog).mtimeMs) / 60000;
     if (ageMin > STALE_RED_MIN) {
-      finding("RED", "local", `lab drain silent for ${human(ageMin * 60000)}`,
+      finding("RED", "local", `lab drain silent for ${human(ageMin / 60)}`,
         "the 15-minute cycle has stopped; nothing is being generated, run or judged",
         "Get-ScheduledTask -TaskName 'SmartEntry Lab Drain' | Get-ScheduledTaskInfo");
     } else if (ageMin > STALE_AMBER_MIN) {
-      finding("AMBER", "local", `lab drain last ran ${human(ageMin * 60000)} ago`,
+      finding("AMBER", "local", `lab drain last ran ${human(ageMin / 60)} ago`,
         "expected every 15 minutes",
         "Get-ScheduledTask -TaskName 'SmartEntry Lab Drain' | Get-ScheduledTaskInfo");
     }

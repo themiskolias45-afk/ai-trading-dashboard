@@ -744,14 +744,19 @@ async function main() {
     const f = freshLog();
     const old = new Date(Date.now() - 7 * 3600000);
     fs.utimesSync(f, old, old);
-    check("lab drain silent 7h -> RED",
-      { severity: "RED", box: "local", match: /drain silent/i },
+    // The regex asserts the RENDERED DURATION, not just the phrase. Until 2026-09-11
+    // both branches passed human() a value in MILLISECONDS while human() takes HOURS,
+    // so a 5.9h gap printed as "889256.9d" and the medic surfaced a finding nobody
+    // could read. A match on /drain silent/ alone passed happily throughout. The
+    // number is the thing that broke, so the number is the thing asserted.
+    check("lab drain silent 7h -> RED, rendered in hours not millis",
+      { severity: "RED", box: "local", match: /drain silent for 7\.\dh/i },
       await isolate(() => doctor.checkLab(SCRATCH)));
 
     const mid = new Date(Date.now() - 2 * 3600000);
     fs.utimesSync(f, mid, mid);
-    check("lab drain last ran 2h ago -> AMBER",
-      { severity: "AMBER", box: "local", match: /drain last ran/i },
+    check("lab drain last ran 2h ago -> AMBER, rendered in hours not millis",
+      { severity: "AMBER", box: "local", match: /drain last ran 2\.\dh ago/i },
       await isolate(() => doctor.checkLab(SCRATCH)));
   }
 
