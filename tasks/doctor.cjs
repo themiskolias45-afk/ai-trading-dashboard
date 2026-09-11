@@ -876,10 +876,95 @@ const COVERAGE_RESTART_RE = /(--\s*starting|--\s*opening|:\s*starting\s*$|:\s*do
  * fix applied and holding, applied and not holding, and NOT APPLIED - which is a null
  * result, not a success. See tasks/SLEEP-RUNBOOK.md.
  */
+// THE INTERPRETATION IS SPLIT FROM THE RUNNING so that it can be tested at all.
+// checkSleepFix shells out to powershell, which is why this check carried NO selftest
+// case for its entire life - and why it spent weeks telling the VPS that "the laptop
+// still hibernates unattended", quoting 200 episodes and 58.7 percent that belonged to a
+// different machine. Everything below is a pure function of the script's own stdout, and
+// every branch of it now has a case in doctor_selftest.cjs.
+//
+// Returns null for INTENDED SILENCE. A box with no sleep episode anywhere in its event
+// log has no sleep to prevent, which is a different statement from "the fix is not
+// applied" and must never be reported as one.
+function interpretSleepVerify(out) {
+  const text = String(out || "");
+
+  // sleep_verify prints this on every path, before any exit, precisely so this decision
+  // can be made on evidence from the box being described rather than on a shared file.
+  const everSlept = text.match(/boxEverSlept:\s*(YES|NO)/i);
+  if (everSlept && everSlept[1].toUpperCase() === "NO") return null;
+
+  if (/^No baseline/im.test(text)) {
+    return {
+      severity: "INFO",
+      what: "sleep baseline has not been recorded on this box",
+      why: "there is nothing to compare against, so no verdict about sleep is possible here — " +
+           "and an absent baseline must not read as a fix that is holding",
+      remedy: "powershell -File tasks\\sleep_verify.ps1 -Baseline",
+    };
+  }
+
+  const applied = /applied:\s*YES/i.test(text);
+  const verdict = (text.split(/\r?\n/).find(l => /VERDICT:/.test(l)) || "").replace(/^\s*VERDICT:\s*/, "").trim();
+  const pct = (text.match(/percent asleep\s+([\d.]+)\s+([\d.]+)/) || []);
+  const eps = (text.match(/episodes\s+(\d+)\s+(\d+)/) || []);
+  const wasPct = pct[1], nowPct = pct[2], wasEpisodes = eps[1];
+
+  if (!applied) {
+    // THE FALLBACKS HERE USED TO BE LITERALS - "58.7" and "0 timer wakes in 200 episodes,
+    // all 200 hibernated" - so any box whose output did not parse printed the LAPTOP's
+    // measurements as its own, with no way for a reader to tell. An unparsed number now
+    // reads "unknown", which is a true statement about what this check knows.
+    return {
+      severity: "INFO",
+      what: "sleep fix not applied yet — the laptop still hibernates unattended",
+      why: `baseline: ${wasPct || "unknown"}% of the recorded window asleep across `
+        + `${wasEpisodes || "an unknown number of"} episode(s). Nothing wakes this box on a timer, `
+        + "so WakeToRun cannot help and the only fix is preventing the sleep. "
+        + "This is a null result, not a pass — there is nothing to hold yet",
+      remedy: "read tasks\\SLEEP-RUNBOOK.md, then apply Option A: powercfg /requestsoverride PROCESS node.exe SYSTEM (elevated)",
+    };
+  }
+
+  // TOO EARLY is not a failure and must not read as one. sleep_verify emits it when the
+  // fix has been running for less than a night against a baseline days older, so every
+  // episode in the window predates the change. Without this the doctor printed "applied
+  // but NOT holding" for a fix that had not yet had a chance to hold.
+  if (/TOO EARLY/i.test(verdict)) {
+    const heldFor = (text.match(/Fix running for ([\d.]+)h/) || [])[1];
+    return {
+      severity: "INFO",
+      what: "sleep fix applied — too early to judge",
+      why: verdict || `running ${heldFor || "<1"}h, baseline is older than that`,
+      remedy: "re-check after 24h: powershell -File tasks\\sleep_verify.ps1",
+    };
+  }
+
+  if (/HELD|IMPROVED/i.test(verdict)) {
+    return {
+      severity: "INFO",
+      what: "sleep fix is holding",
+      why: verdict || `asleep ${wasPct}% before, ${nowPct}% since`,
+      remedy: "no action — re-check with: powershell -File tasks\\sleep_verify.ps1",
+    };
+  }
+
+  return {
+    severity: "AMBER",
+    what: "sleep fix applied but NOT holding",
+    why: (verdict || `still ${nowPct}% asleep against a ${wasPct}% baseline`)
+      + " — the power request is being released by something",
+    remedy: "elevated: powercfg /requests   (shows who holds or drops the SYSTEM request)",
+  };
+}
+
 function checkSleepFix(root = ROOT) {
   const script = path.join(root, "tasks", "sleep_verify.ps1");
-  const baseline = path.join(root, "tasks", "sleep_baseline.json");
-  if (!fs.existsSync(script) || !fs.existsSync(baseline)) return;   // nothing recorded yet
+  // The BASELINE is no longer a precondition here, and deliberately so. It is now a
+  // per-box file (tasks/sleep_baseline.<BOX>.json), and gating on the old shared name
+  // meant a box was judged present or absent by a file another machine had committed.
+  // sleep_verify reports its own missing baseline; this only needs the script.
+  if (!fs.existsSync(script)) return;
 
   let out;
   try {
@@ -891,49 +976,15 @@ function checkSleepFix(root = ROOT) {
     out = (e && e.stdout) ? String(e.stdout) : "";
     if (!out) {
       finding("INFO", "local", "sleep verification did not run",
-        `${String((e && e.message) || e).slice(0, 120)} — the numbers behind it are still in tasks/sleep_baseline.json`,
+        `${String((e && e.message) || e).slice(0, 120)} — the numbers behind it are in this box's own tasks/sleep_baseline.<BOX>.json`,
         "powershell -File tasks\\sleep_verify.ps1");
       return;
     }
   }
 
-  const applied = /applied:\s*YES/i.test(out);
-  const verdict = (out.split(/\r?\n/).find(l => /VERDICT:/.test(l)) || "").replace(/^\s*VERDICT:\s*/, "").trim();
-  const pct = (out.match(/percent asleep\s+([\d.]+)\s+([\d.]+)/) || []);
-  const wasPct = pct[1], nowPct = pct[2];
-
-  if (!applied) {
-    finding("INFO", "local", "sleep fix not applied yet — the laptop still hibernates unattended",
-      `baseline: ${wasPct || "58.7"}% of the last ~112 days asleep, 0 timer wakes in 200 episodes, all 200 hibernated. `
-      + "Nothing wakes this box, so WakeToRun cannot help and the only fix is preventing the sleep. "
-      + "This is a null result, not a pass — there is nothing to hold yet",
-      "read tasks\\SLEEP-RUNBOOK.md, then apply Option A: powercfg /requestsoverride PROCESS node.exe SYSTEM (elevated)");
-    return;
-  }
-
-  // TOO EARLY is not a failure and must not read as one. sleep_verify emits it when the
-  // fix has been running for less than a night against a baseline days older, so every
-  // episode in the window predates the change. Without this the doctor printed "applied
-  // but NOT holding" for a fix that had not yet had a chance to hold.
-  if (/TOO EARLY/i.test(verdict)) {
-    const heldFor = (out.match(/Fix running for ([\d.]+)h/) || [])[1];
-    finding("INFO", "local", "sleep fix applied — too early to judge",
-      verdict || `running ${heldFor || "<1"}h, baseline is older than that`,
-      "re-check after 24h: powershell -File tasks\\sleep_verify.ps1");
-    return;
-  }
-
-  if (/HELD|IMPROVED/i.test(verdict)) {
-    finding("INFO", "local", "sleep fix is holding",
-      verdict || `asleep ${wasPct}% before, ${nowPct}% since`,
-      "no action — re-check with: powershell -File tasks\\sleep_verify.ps1");
-    return;
-  }
-
-  finding("AMBER", "local", "sleep fix applied but NOT holding",
-    (verdict || `still ${nowPct}% asleep against a ${wasPct}% baseline`)
-      + " — the power request is being released by something",
-    "elevated: powercfg /requests   (shows who holds or drops the SYSTEM request)");
+  const result = interpretSleepVerify(out);
+  if (!result) return;   // intended silence: this box has no sleep to prevent
+  finding(result.severity, "local", result.what, result.why, result.remedy);
 }
 
 function checkCoverageGaps(root = ROOT) {
@@ -1546,6 +1597,7 @@ module.exports = {
   diagnose,
   checkBox, checkFleetExposure, checkParity, checkAgentQueue, checkAiCapacity,
   checkMarketJobs, checkBackup, checkSizingTrigger, checkCoverageGaps, checkSleepFix, checkTvPlan,
+  interpretSleepVerify,
   checkDashboardEncoding, checkDoctorSelftest,
   checkLearningIntegrity,
   checkLab,

@@ -760,6 +760,58 @@ async function main() {
       await isolate(() => doctor.checkLab(SCRATCH)));
   }
 
+  // ---- sleep verification: the branch set that had NO coverage at all ----------
+  // This is the check that told the VPS "the laptop still hibernates unattended" for
+  // weeks, printing 200 episodes and 58.7 percent that belonged to another machine. It
+  // was untestable because it shelled out to powershell; interpretSleepVerify is the pure
+  // half, so every branch including the SILENT one is now asserted here.
+  {
+    const sleepCase = (name, out, expectation) => {
+      const result = doctor.interpretSleepVerify(out);
+      const findings = result
+        ? [{ severity: result.severity, box: "local", what: result.what, why: result.why }]
+        : [];
+      check(name, expectation, findings);
+    };
+
+    // The whole point. A server with no sleep episode in its event log must say NOTHING,
+    // not "apply the sleep fix" - and this is the one case that would have caught it.
+    sleepCase("a box that has never slept -> SILENCE, not a finding",
+      "boxEverSlept: NO   (box VMI3465345)\n  VERDICT: NOT APPLICABLE - box VMI3465345 has no sleep episode",
+      { none: true });
+
+    sleepCase("a box that sleeps, fix not applied -> INFO naming ITS OWN numbers",
+      "boxEverSlept: YES   (box THEMIS)\n  Sleep fix applied: NO\n"
+      + "  episodes                        200           25\n"
+      + "  percent asleep                 58.7         36.2\n"
+      + "  VERDICT: nothing was applied, so nothing should have changed.",
+      { severity: "INFO", box: "local", match: /58\.7% of the recorded window asleep across 200 episode/ });
+
+    // The regression guard for the literals. An output that does NOT parse must say
+    // "unknown" - never fall back to a number measured on a different machine.
+    sleepCase("unparseable numbers -> \"unknown\", never another box's 58.7",
+      "boxEverSlept: YES   (box SOMEBOX)\n  Sleep fix applied: NO\n  VERDICT: nothing was applied.",
+      { severity: "INFO", box: "local", match: /unknown% of the recorded window asleep across an unknown number of episode/ });
+
+    sleepCase("no baseline on this box -> its own INFO, not a false NOT-APPLIED",
+      "boxEverSlept: YES   (box THEMIS)\nNo baseline for box THEMIS. Run:  powershell -File tasks\\sleep_verify.ps1 -Baseline",
+      { severity: "INFO", box: "local", match: /baseline has not been recorded on this box/ });
+
+    sleepCase("fix applied, less than a night old -> TOO EARLY, not a failure",
+      "boxEverSlept: YES   (box THEMIS)\n  Sleep fix applied: YES - Option B\n"
+      + "  Fix running for 1.2h (started 2026-09-11 04:04)\n  VERDICT: TOO EARLY TO JUDGE. The fix has been up 1.2h",
+      { severity: "INFO", box: "local", match: /too early to judge/i });
+
+    sleepCase("fix applied and holding -> INFO",
+      "boxEverSlept: YES   (box THEMIS)\n  Sleep fix applied: YES - Option A\n  VERDICT: HELD. No sleep episodes at all since the baseline.",
+      { severity: "INFO", box: "local", match: /sleep fix is holding/ });
+
+    sleepCase("fix applied and NOT holding -> AMBER",
+      "boxEverSlept: YES   (box THEMIS)\n  Sleep fix applied: YES - Option A\n"
+      + "  percent asleep                 58.7         55.1\n  VERDICT: NOT FIXED. Still 55.1% asleep across 9 episode(s).",
+      { severity: "AMBER", box: "local", match: /NOT holding/ });
+  }
+
   // 2. a FAILED job recorded and never read
   freshLog();
   put(labQueue, JSON.stringify({ id: "a", status: "QUEUED", queuedAt: hoursAgo(1) }) + "\n"

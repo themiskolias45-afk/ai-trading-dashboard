@@ -20,7 +20,19 @@ param([switch]$Baseline)
 
 $ErrorActionPreference = 'Stop'
 $proj     = Split-Path -Parent $PSScriptRoot
-$statePath = Join-Path $proj 'tasks\sleep_baseline.json'
+
+# PER-BOX STATE MUST NOT BE SHARED, AND THIS FILE WAS.
+# tasks\sleep_baseline.json is git-tracked, so the laptop's baseline shipped to the VPS in
+# the repo and the VPS reported 200 hibernations and 58.7 percent asleep as its OWN - the
+# two files were byte-identical, measured 2026-09-11. A baseline now carries the box name
+# in its filename AND inside the file, so one machine can never speak for another.
+#
+# The shared file is NOT deleted and NOT moved. It is ADOPTED below by whichever box can
+# show it has actually slept, and ignored by any box that has not.
+$boxName    = $env:COMPUTERNAME
+if (-not $boxName) { $boxName = 'UNKNOWN-BOX' }
+$legacyPath = Join-Path $proj 'tasks\sleep_baseline.json'
+$statePath  = Join-Path $proj ('tasks\sleep_baseline.' + $boxName + '.json')
 
 function Get-SleepStats {
     param([int]$MaxEvents = 200, [datetime]$Since = [datetime]::MinValue)
@@ -62,6 +74,19 @@ function Get-SleepStats {
         First         = $rows[0].Sleep
         Last          = $rows[-1].Wake
     }
+}
+
+# HAS THIS MACHINE EVER SLEPT AT ALL. One event answers it, so this costs a single
+# capped query rather than the 200-event walk above. A box with no Power-Troubleshooter
+# record has no sleep to prevent, which is a different statement from "the fix is not
+# applied" and must not be reported as one.
+function Test-BoxEverSlept {
+    $ev = Get-WinEvent -FilterHashtable @{
+        LogName      = 'System'
+        ProviderName = 'Microsoft-Windows-Power-Troubleshooter'
+        Id           = 1
+    } -MaxEvents 1 -ErrorAction SilentlyContinue
+    return (@($ev).Count -gt 0)
 }
 
 function Get-OverrideApplied {
@@ -118,6 +143,9 @@ $MIN_HOURS_BEFORE_JUDGING = 24
 if ($Baseline) {
     $s = Get-SleepStats
     $s | Add-Member -NotePropertyName RecordedAt -NotePropertyValue (Get-Date).ToString('o')
+    # The filename already says which box this is. So does the file, because a filename
+    # survives exactly until someone copies it.
+    $s | Add-Member -NotePropertyName RecordedOn -NotePropertyValue $boxName
     $s | Add-Member -NotePropertyName OverrideApplied -NotePropertyValue (Get-OverrideApplied)
     $s | ConvertTo-Json | Set-Content -Path $statePath -Encoding utf8
     "BASELINE RECORDED -> $statePath"
@@ -125,8 +153,29 @@ if ($Baseline) {
     exit 0
 }
 
+# Emitted FIRST and on EVERY path, because the doctor reads this line to decide whether
+# the check applies to this machine at all. A marker that only prints on the happy path
+# is a marker the caller cannot rely on.
+$boxEverSlept = Test-BoxEverSlept
+"boxEverSlept: {0}   (box {1})" -f $(if ($boxEverSlept) { 'YES' } else { 'NO' }), $boxName
+
+if (-not $boxEverSlept) {
+    "  VERDICT: NOT APPLICABLE - box $boxName has no sleep episode in its event log at all."
+    "           There is no sleep to prevent here, so there is no fix to apply and nothing"
+    "           to hold. That is a property of this machine, not a result."
+    exit 0
+}
+
+# ADOPT, never move and never delete. A box that demonstrably sleeps claims the shared
+# legacy baseline as its own on first run; a box with no sleep history never reaches this
+# line, which is precisely how the VPS stops reporting the laptop's history as its own.
+if ((-not (Test-Path $statePath)) -and (Test-Path $legacyPath)) {
+    Copy-Item -Path $legacyPath -Destination $statePath -Force
+    "  (adopted the shared baseline as this box's own: $statePath - the original is untouched)"
+}
+
 if (-not (Test-Path $statePath)) {
-    "No baseline. Run:  powershell -File tasks\sleep_verify.ps1 -Baseline"
+    "No baseline for box $boxName. Run:  powershell -File tasks\sleep_verify.ps1 -Baseline"
     exit 2
 }
 

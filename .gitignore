@@ -238,3 +238,11 @@ dashboard/atomic-join.json
 tasks/analysis/atomic-join-latest.txt
 dashboard/shadow-boost.json
 tasks/analysis/shadow-boost-latest.txt
+
+# PER-BOX SLEEP BASELINE - never shipped.
+# tasks/sleep_baseline.json (no box name) stays tracked and is NOT removed: it is the
+# legacy shared file, and untracking it would delete it from the other box on its next
+# pull. The per-box files below are what every machine writes and reads from now on,
+# because a baseline that travels in git makes one box report another box's history as
+# its own - the VPS claimed the laptop's 200 hibernations until 2026-09-11.
+tasks/sleep_baseline.*.json
