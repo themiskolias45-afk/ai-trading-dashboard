@@ -155,6 +155,31 @@ $counts = $null
 try {
     $parsed = $json | ConvertFrom-Json
     $counts = $parsed.counts
+
+    # PERSIST THE CURRENT VIEW, so the dashboard can count LIVE findings instead of
+    # ledger history. Measured 2026-09-11: the strip's Medic cell read 7 escalated while
+    # the doctor was reporting 3 - the other four were decisions on findings medic.cjs
+    # itself lists as CLEARED, meaning the doctor no longer reports them. A cell that
+    # counts closed problems is the over-report that makes a light worth ignoring.
+    #
+    # WRITTEN HERE because `medic.cjs --json` runs the doctor across BOTH boxes; that is
+    # far too expensive for a publisher on a page timer, and this job has just paid for
+    # it. tasks/coverage_publish.cjs reads this file, falls back to the ledger when it is
+    # missing or stale, and states which basis it used either way.
+    #
+    # [IO.File]::WriteAllText, NOT Set-Content: PowerShell 5.1's Set-Content defaults to
+    # the ANSI codepage and this payload is UTF-8 that a browser will JSON.parse. Written
+    # to a temp file and moved so a reader can never catch it half-written.
+    try {
+        $curPath = Join-Path $ProjectRoot 'dashboard\medic-current.json'
+        $curTmp = $curPath + '.tmp'
+        [IO.File]::WriteAllText($curTmp, $json, (New-Object Text.UTF8Encoding($false)))
+        Move-Item -LiteralPath $curTmp -Destination $curPath -Force
+        Write-MedicLog ("published medic-current.json (" + $parsed.totalFindings + " findings)")
+    } catch {
+        # Reporting only - it must never fail the medic run.
+        Write-MedicLog ("WARNING - could not publish medic-current.json: " + $_.Exception.Message)
+    }
 } catch {
     # Unparseable JSON is REPORTED, never swallowed. The human pass still ran and is logged.
     Write-MedicLog ("WARNING - could not parse medic --json: " + $_.Exception.Message)
