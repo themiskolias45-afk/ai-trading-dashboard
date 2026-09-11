@@ -167,9 +167,16 @@ def main(argv):
            datetime.datetime.fromtimestamp(last).isoformat(timespec="seconds") if last else "never"))
 
     # INCREMENTAL ONLY. --rebuild is never passed from here; see the header.
+    #
+    # --refresh-changed is safe to pass and is the reason an EDITED memory stops serving
+    # its old text. Chunk ids are path-based, so without it a corrected memory keeps
+    # answering with the sentence it used to say. The refresh is collection.update() -
+    # same id, new document, new embedding - which REMOVES NO ROW, so the chunk count
+    # cannot fall. Chunks orphaned by a memory getting shorter are MARKED superseded,
+    # never deleted; rag_query.py skips them and the row survives.
     try:
         proc = subprocess.run(
-            [sys.executable, INDEXER, "--source", "brain"],
+            [sys.executable, INDEXER, "--source", "brain", "--refresh-changed"],
             cwd=ROOT, capture_output=True, text=True, timeout=INDEX_TIMEOUT_SEC)
     except subprocess.TimeoutExpired:
         say("  FAILED: the indexer exceeded %ds and was stopped. Nothing was deleted - "
