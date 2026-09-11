@@ -481,5 +481,74 @@ function selftest() {
   return failed ? 1 : 0;
 }
 
-if (require.main === module) process.exit(main(process.argv.slice(2)));
+/* ── one instance, and a fatal error that names itself ────────────────────────────
+ * TWO SCHEDULES RUN THIS SCRIPT. "SmartEntry Lab Shadow" fires hourly (PT1H) and
+ * tasks/lab_drain.ps1:219 runs it again on every 15-minute drain tick. They overlap,
+ * and when they do, both write tasks/lab_shadow.jsonl and dashboard/lab-shadow.json at
+ * once — on Windows the loser gets EPERM/EBUSY, main() throws, and node exits 1.
+ *
+ * Measured 2026-09-11 on the VPS: the task recorded rc=1 while running the SAME command
+ * in the SAME working directory by hand returned 0, the ACLs were identical to
+ * fvg_shadow.jsonl which exits 0, and main() has exactly one return path — `return 0`.
+ * A non-zero exit could therefore only be an uncaught throw, and the task carries no
+ * output redirect, so the stack trace went nowhere. Four days of rc=1 with no evidence.
+ *
+ * THE LOCK SKIPS, IT DOES NOT FAIL. A second instance exits 0 and says so. Skipping one
+ * shadow pass costs nothing — the next tick is 15 minutes away and the collection is
+ * cumulative — whereas exiting non-zero raises an alarm for two schedules doing their
+ * job. Same reasoning lab_drain.ps1 states for its own single-instance rule.
+ *
+ * IT CANNOT WEDGE. A lock older than LOCK_STALE_MS is treated as abandoned and taken,
+ * so a killed process cannot stop the shadow from ever running again. The learning
+ * ledger must never be blocked by this file's own bookkeeping.
+ *
+ * THE ERROR IS WRITTEN DOWN EITHER WAY, and the exit code is unchanged. */
+const LOCK = path.join(ROOT, 'tasks', 'logs', '.lab_shadow.lock');
+const ERRLOG = path.join(ROOT, 'tasks', 'logs', 'lab_shadow_error.txt');
+const LOCK_STALE_MS = 30 * 60 * 1000;   // 30 min: far longer than a pass has ever taken
+
+function takeLock() {
+  try {
+    const st = fs.existsSync(LOCK) ? fs.statSync(LOCK) : null;
+    if (st && (Date.now() - st.mtimeMs) > LOCK_STALE_MS) {
+      try { fs.unlinkSync(LOCK); } catch (e) { /* another instance won the race */ }
+    }
+    const fd = fs.openSync(LOCK, 'wx');           // fails if it already exists
+    fs.writeSync(fd, String(process.pid));
+    fs.closeSync(fd);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function releaseLock() { try { fs.unlinkSync(LOCK); } catch (e) { /* already gone */ } }
+
+if (require.main === module) {
+  const argv = process.argv.slice(2);
+
+  // --selftest takes no lock: it writes nothing and must always be runnable.
+  if (argv.indexOf('--selftest') >= 0) process.exit(main(argv));
+
+  if (!takeLock()) {
+    console.log('lab_shadow: another instance holds the lock — skipping this pass '
+      + '(hourly task and the 15-minute drain both run this).');
+    process.exit(0);
+  }
+
+  let code = 0;
+  try {
+    code = main(argv);
+  } catch (err) {
+    // Say what happened, where a human will find it. The exit code is NOT swallowed.
+    const line = '[' + new Date().toISOString() + '] lab_shadow FATAL on '
+      + require('os').hostname() + '\n' + (err && err.stack ? err.stack : String(err)) + '\n';
+    try { fs.appendFileSync(ERRLOG, line); } catch (e) { /* nothing left to try */ }
+    console.error(line);
+    code = 1;
+  } finally {
+    releaseLock();
+  }
+  process.exit(code);
+}
 module.exports = { collect: collect, readJsonl: readJsonl, selftest: selftest, rDiffers: rDiffers };
