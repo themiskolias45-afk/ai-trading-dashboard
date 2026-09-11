@@ -125,9 +125,34 @@ foreach ($line in $remote) {
     $m = [regex]::Match([string]$line, '^(.+?)=(\d+)$')
     if ($m.Success) { $remoteSizes[$m.Groups[1].Value] = [int64]$m.Groups[2].Value }
 }
+# VERIFIED MEANS "THE BYTES THAT LANDED WERE A REAL STATE OF THIS FILE", not "the file
+# has not changed since". Measured 2026-09-11: this job reported INCOMPLETE on two
+# consecutive runs - agent_audit.jsonl local=1177027 remote=1177343, then
+# all_trades_ledger.jsonl local=7469403 remote=7476621. The REMOTE was LARGER both
+# times, and it is always larger: the local size was read before the transfers began and
+# four of these files are append-only ledgers that grow while scp is running. Nothing
+# was ever lost; the check was comparing two different moments and calling the
+# difference a failure. An alarm that fires on healthy behaviour is how a real one gets
+# ignored.
+#
+# THE CHECK IS NOT WEAKENED. scp copies a snapshot, so what landed must lie between the
+# size before its copy and the size after it. A truncated file, a short write or an
+# absent one all fall OUTSIDE that window and still fail exactly as before - the window
+# is a few hundred bytes wide on a file of several megabytes.
 foreach ($f in $present) {
-    if ($remoteSizes.ContainsKey($f.Name) -and $remoteSizes[$f.Name] -eq $f.Size) { $verified++ }
-    else { Say ("  NOT VERIFIED: " + $f.Name + " local=" + $f.Size + " remote=" + $(if ($remoteSizes.ContainsKey($f.Name)) { $remoteSizes[$f.Name] } else { 'absent' })) }
+    $lo = [math]::Min($f.Size, $f.SizeAfter)
+    $hi = [math]::Max($f.Size, $f.SizeAfter)
+    if ($remoteSizes.ContainsKey($f.Name) -and $remoteSizes[$f.Name] -ge $lo -and $remoteSizes[$f.Name] -le $hi) {
+        $verified++
+        if ($f.SizeAfter -ne $f.Size) {
+            Say ("  grew during transfer (normal for an append-only ledger): " + $f.Name +
+                 " " + $f.Size + " -> " + $f.SizeAfter + ", landed " + $remoteSizes[$f.Name])
+        }
+    }
+    else {
+        Say ("  NOT VERIFIED: " + $f.Name + " local was " + $lo + ".." + $hi + " remote=" +
+             $(if ($remoteSizes.ContainsKey($f.Name)) { $remoteSizes[$f.Name] } else { 'absent' }))
+    }
 }
 
 Say ("  sent " + $sent + ", failed " + $failed + ", VERIFIED BY SIZE " + $verified + " of " + $present.Count)
