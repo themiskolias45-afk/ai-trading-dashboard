@@ -255,3 +255,6 @@ tasks/sleep_baseline.*.json
 # Untracked here BEFORE the peer ever tracked them, so no checkout can delete a copy.
 dashboard/coverage-audit.json
 dashboard/medic-ledger.json
+
+# Per-box: the medic doctor view for THIS box, written by tasks/medic_loop.ps1.
+dashboard/medic-current.json
