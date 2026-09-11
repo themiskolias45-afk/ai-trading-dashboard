@@ -386,7 +386,23 @@ def index_brain(client, model, rebuild: bool = False):
     # but the collection is not emptied until the add below.
     existing_ids = set() if rebuild else _existing_ids(collection, rebuild)
     new_docs, new_ids, new_metas = [], [], []
+    upd_docs, upd_ids, upd_metas = [], [], []
+    stale_ids = []
     files = skipped = 0
+
+    # Prior content hashes, so an EDITED memory can be recognised. Only read when we are
+    # actually going to act on it — this is a full metadata read of the collection.
+    prior_hash = {}
+    if refresh_changed and not rebuild:
+        try:
+            got = collection.get(include=["metadatas"])
+            for cid, m in zip(got.get("ids", []), got.get("metadatas", []) or []):
+                if m:
+                    prior_hash[cid] = m.get("contentHash")
+        except Exception as exc:
+            print(f"  [brain] could not read prior hashes ({exc}) — "
+                  f"refresh skipped this run, nothing changed")
+            refresh_changed = False
 
     for md in sorted(corpus.glob("*.md")):
         try:
