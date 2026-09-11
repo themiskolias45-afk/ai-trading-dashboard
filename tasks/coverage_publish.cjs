@@ -173,9 +173,93 @@ function build() {
   };
 }
 
+/* ── the medic ledger, as a count the page can read ──────────────────────────
+   WHY FROM THE LEDGER AND NOT FROM /api/medic. That route re-runs the doctor across
+   BOTH boxes on a cache miss (server/index.js:14634) and offers no cache-only read, so
+   hanging it off a strip that loads with every page would fire 20-second fleet doctor
+   runs on nothing more than a refresh. The ledger is already on disk and costs a file
+   read.
+
+   ESCALATED IS THE NUMBER THAT MATTERS. The medic's own vocabulary separates what it
+   handled from what it refused to decide: `fixed` and `accepted` are closed, `watching`
+   is deliberate, and `escalated` means it stopped and handed the call to a human —
+   money decisions, signal-path changes, open positions. On 2026-09-11 the strip's
+   "Needs You" cell read 0 from system-plan's actionItems while SEVEN findings sat
+   escalated in here. */
+const MEDIC_LEDGER = path.join(ROOT, 'tasks', 'medic_ledger.jsonl');
+const MEDIC_OUT = path.join(ROOT, 'dashboard', 'medic-ledger.json');
+const OPEN_ACTIONS = ['escalated'];          // handed to the user, nobody else can close it
+const CLOSED_ACTIONS = ['fixed', 'accepted', 'wontfix'];
+
+function buildMedic() {
+  if (!fs.existsSync(MEDIC_LEDGER)) {
+    return {
+      available: false,
+      reason: 'tasks/medic_ledger.jsonl does not exist — the medic has not recorded a decision on this box',
+      publishedAt: new Date().toISOString(),
+      feedsTheGate: false,
+    };
+  }
+
+  const rows = [];
+  for (const line of fs.readFileSync(MEDIC_LEDGER, 'utf8').split(/\r?\n/)) {
+    const s = line.trim();
+    if (!s) continue;
+    try { rows.push(JSON.parse(s)); } catch (e) { /* a torn line must not kill the read */ }
+  }
+
+  /* The ledger is append-only and a finding is re-decided over time, so the LAST row
+     for an id is its current disposition. Folding in file order gives that for free. */
+  const latest = new Map();
+  for (const r of rows) if (r && r.id) latest.set(r.id, r);
+
+  const byAction = {};
+  for (const r of latest.values()) {
+    const a = r.action || 'undecided';
+    byAction[a] = (byAction[a] || 0) + 1;
+  }
+
+  const open = [...latest.values()]
+    .filter(r => OPEN_ACTIONS.includes(r.action))
+    .map(r => ({
+      id: r.id, box: r.box, severity: r.severity, what: r.what,
+      note: r.note, ts: r.ts, reviewDays: r.reviewDays,
+    }));
+
+  let newestTs = null;
+  for (const r of latest.values()) {
+    if (r.ts && (!newestTs || String(r.ts) > String(newestTs))) newestTs = r.ts;
+  }
+
+  return {
+    available: true,
+    ledgerRows: rows.length,
+    distinctFindings: latest.size,
+    byAction,
+    openCount: open.length,
+    closedCount: [...latest.values()].filter(r => CLOSED_ACTIONS.includes(r.action)).length,
+    open,
+    lastDecisionAt: newestTs,
+    source: 'tasks/medic_ledger.jsonl',
+    publishedAt: new Date().toISOString(),
+    feedsTheGate: false,
+  };
+}
+
 function selftest() {
   let failed = 0;
   const ok = (n, c, x) => { if (!c) { failed++; console.log('  FAIL  ' + n + (x ? '  ' + x : '')); } else console.log('  ok    ' + n); };
+
+  const medic = buildMedic();
+  ok('the medic ledger was found', medic.available === true, medic.reason || '');
+  if (medic.available) {
+    ok('findings were folded to one row each', medic.distinctFindings > 0
+      && medic.distinctFindings <= medic.ledgerRows);
+    ok('open count matches the open list', medic.openCount === medic.open.length);
+    ok('every open finding names its box and severity',
+      medic.open.every(f => f.box && f.severity));
+    ok('the medic block cannot reach the gate', medic.feedsTheGate === false);
+  }
 
   const payload = build();
   ok('the log was found and a block parsed', payload.available === true, payload.reason || '');
