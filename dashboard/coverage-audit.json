@@ -1,0 +1,52 @@
+{
+  "available": true,
+  "box": "THEMIS",
+  "ranAt": "2026-09-11T14:46:44.000Z",
+  "ranAtText": "2026-09-11 15:46:44",
+  "ageHours": 1.27,
+  "stale": false,
+  "staleAfterHours": 13,
+  "summary": {
+    "total": 88,
+    "red": 3,
+    "amber": 1,
+    "unknown": 0,
+    "greenOrInfo": 84
+  },
+  "counted": {
+    "red": 3,
+    "amber": 1,
+    "unknown": 0
+  },
+  "parseAgreesWithSummary": true,
+  "verdict": "RED",
+  "red": [
+    {
+      "name": "SmartEntry Atomic Feed",
+      "detail": "last exit 2147946720, 0h ago",
+      "section": "TASKS"
+    },
+    {
+      "name": "SmartEntry Mirror To USB",
+      "detail": "last exit 1, 0h ago",
+      "section": "TASKS"
+    },
+    {
+      "name": "MT5 status freshness",
+      "detail": "status file is 527.6 min old (writer runs every 10 min). MT5 Ensure Running is LogonType=Interactive - if no session is logged on it neither publishes status NOR restarts MT5. Check: qwinsta",
+      "section": "SAFETY"
+    }
+  ],
+  "amber": [
+    {
+      "name": "EA build watch",
+      "detail": "No EA matching /(EA_CRT_AMD_Dashboard(?:_v\\d+)?)\\s*\\(([^,]+),([^)]+)\\)/ is loaded on this box. The terminal log is readable and this is what IS loaded -- 5B9C24F1 [session 2026-09-11 15:40:24]: DeepTrade_EA_v1 (MSFT,M15), TK_SMART_ENTRY_v3.22 (BTCUSD,M15), V10_EA_MASTER_v4_15_2_CAPBORN (BTCUSD,M15), V10_EA_MASTER_v4_15_2_CAPBORN (XAUUSD,M15)  |  A35D81CF [session 2026-09-08 22:03:38]: (no experts loaded)  |  D0E8209F [session 2026-09-11 15:40:22]: V10_EA_TRADING_ONLY_v4_15_2_CAPBORN (XAUUSD,M15), V10_EA_TRADING_ONLY_v4_15_2_CAPBORN (BTCUSD,M15), Pao (BTCUSD,M15).  Last recorded here: EA_CRT_AMD_Dashboard_v355 at 2026-09-04 11:16:56. Reported from the roster, so it is certain, not a staleness guess.",
+      "section": "SAFETY"
+    }
+  ],
+  "unknown": [],
+  "totalChecksParsed": 86,
+  "source": "tasks/logs/coverage_audit.txt",
+  "publishedAt": "2026-09-11T16:03:01.987Z",
+  "feedsTheGate": false
+}

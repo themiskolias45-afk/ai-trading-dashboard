@@ -1,0 +1,82 @@
+{
+  "available": true,
+  "ledgerRows": 29,
+  "distinctFindings": 19,
+  "byAction": {
+    "fixed": 2,
+    "watching": 5,
+    "accepted": 5,
+    "escalated": 7
+  },
+  "openCount": 7,
+  "closedCount": 7,
+  "open": [
+    {
+      "id": "b47c695f7e40",
+      "box": "fleet",
+      "severity": "AMBER",
+      "what": "1 position(s) held on BOTH boxes at once",
+      "note": "MONEY DECISION, YOURS NOT MINE. Measured now: 5 positions across the fleet, not the 3 the doctor counted. SP500 BUY 0.1 on BOTH boxes (0.2 total) and BTCUSD 0.05 laptop + 0.06 + 0.07 VPS (0.18 total). Combined unrealised -125.13. Each dashboard shows only its own box, so either screen shows roughly half the real exposure, and because both boxes run the same engine on the same arm the halves move together rather than diversifying. This is the direct consequence of running identical configs on two machines. Nothing to fix in code - the question is whether you intend double size, and that is a risk decision I will not take for you.",
+      "ts": "2026-09-05T04:45:51.871Z",
+      "reviewDays": 7
+    },
+    {
+      "id": "83eef02cbd60",
+      "box": "local",
+      "severity": "AMBER",
+      "what": "2 lab candidate(s) cleared the bar and are unreviewed",
+      "note": "ON THE SIGNAL PATH - I will not promote a strategy. Staged only, nothing applied to live and nothing will be without you. Two candidates: (1) bb_squeeze_break BTCUSD H1 period50 mult2 - 224 trades, expectancy 0.649R, OOS 0.432R, PF 1.96, deflated Sharpe 0.988 across 31 trials; (2) donchian_break BTCUSD H1 lookback40 - 1039 trades, expectancy 0.252R, OOS 0.087R, PF 1.33, deflated Sharpe 0.993 across 8 trials. Candidate 2's OOS expectancy is a third of its in-sample, on the larger sample. Read the plateau at /lab before promoting either: node tasks/lab_promote.cjs --list",
+      "ts": "2026-09-05T04:45:57.097Z",
+      "reviewDays": 7
+    },
+    {
+      "id": "7c0f5f0b1450",
+      "box": "local",
+      "severity": "AMBER",
+      "what": "1 open position(s) held BELOW the 1.5 R:R floor",
+      "note": "OPEN POSITION - the doctor's own remedy says no automatic action is safe here, and I agree. It is also WORSE than this finding states, because the doctor only measures its own box: recomputed across the fleet just now, THREE of five open positions sit below the 1.5 floor - laptop SP500 at 1.187, laptop BTCUSD at 1.185, VPS SP500 at 1.262. Only the VPS BTCUSD pair clears (3.188 and 1.796). The structural cause is real: MIN_RR is enforced on the PLANNED entry and never re-checked after the fill, so entry drift silently converts an approved 2.0 into a held 1.19. Two separate decisions for you - what to do about the open trades, and whether MIN_RR should be re-checked post-fill. The second is a signal-path change I will not make unprompted.",
+      "ts": "2026-09-05T04:46:02.642Z",
+      "reviewDays": 7
+    },
+    {
+      "id": "3eae0e3586a8",
+      "box": "peer",
+      "severity": "AMBER",
+      "what": "3 proposal(s) cite things that do not resolve",
+      "note": "ROOT CAUSE FOUND AND MEASURED - the proposals are not at fault, the CHECKER is. server/proposal_citations.js:74 declares SYMBOL_DIRS = [[\"server\"],[\"tasks\"],[\"dashboard\"]] while the line two below it, SEARCH_DIRS = [\"\",\"server\",\"tasks\",\"dashboard\"], DOES include the project root. So a PATH citation of mt5_bridge.py resolves and a SYMBOL citation of a function defined inside that same file cannot - the bridge is the one major source file that lives at the repo root. Verified the cited symbols are real: load_breaker_state mt5_bridge.py:343, record_closed_outcome :430, check_circuit_breaker :594. Proved the fix read-only WITHOUT touching the shipped file (compiled a patched copy in memory, adding [] to SYMBOL_DIRS): all three flip from BROKEN to OK at their true line numbers, loadLearning still resolves to server/index.js:1136 unchanged, and getTime() correctly STAYS broken - it is a JavaScript built-in and was always a genuine mis-citation, so the fix adds no false positive. NOT APPLIED, and here is why: proposal_citations.js is required at server boot, so the change only takes effect at a server RESTART on the box that trades, which I must never do; and deploying a server/*.js file to the VPS is the exact operation that crashed it on 2026-09-05 (parity then said ENGINES AGREE by construction). One line, reversible, ready on request. Net effect today: 3 of the 4 flagged proposals are FALSELY accused and their reasoning stands.",
+      "ts": "2026-09-07T19:02:45.757Z",
+      "reviewDays": 7
+    },
+    {
+      "id": "100ae2a50ad2",
+      "box": "local",
+      "severity": "AMBER",
+      "what": "the pre-open trigger was last set before the current plan was built",
+      "note": "BLOCKED, NOT SKIPPED - and I stopped rather than route around it. This is the one HEALABLE finding in the set and I prepared it properly: exported the live task definition first as tasks/logs/preopen_task_backup_20260907_200049.xml and VERIFIED it exists (1635 bytes, current trigger StartBoundary 2026-09-07T13:00:00+01:00), which is the exact undo. Read the remedy before running it: reschedule_preopen.ps1 changes ONE thing, the daily trigger time of the scheduled task \"SmartEntry Pre-Open Plan\" (line 107, Set-ScheduledTask -Trigger), computing it from the current plan artifact in UTC and converting via ToLocalTime because the two boxes are in different timezones. It touches no gate, threshold, setup, confidence, sizing or stop, and writes nothing to learning or the journal. The run itself was DENIED by the Claude Code permission classifier, and running the underlying .ps1 directly would have been the same action by another name, so I did not. NEEDED FROM YOU: one command, powershell -File tasks\\reschedule_preopen.ps1 - it is idempotent and prints \"no move needed\" if the slot already matches. Consequence of leaving it: the pre-open plan is built at a slot computed from an older calendar, so today blackouts are not applied to it. It builds a plan artifact, it does not place orders.",
+      "ts": "2026-09-07T19:03:03.878Z",
+      "reviewDays": 2
+    },
+    {
+      "id": "103fae1e460a",
+      "box": "peer",
+      "severity": "AMBER",
+      "what": "2 AI proposal(s) nobody has decided",
+      "note": "RE-READ 2026-09-10, STILL YOURS, also ONE fix not two. Both VPS proposals (morning-2sbud5, morning-460iox) restate the same thing: record the UNSCORABLE cause as a machine-readable enum in tasks/score_rr_rejections.py, because it exists today only as English inside a detail string. MEASURED TODAY and it is worse than the proposal states: of MOMENTUM's 1,787 rejection rows, 829 (46 percent) carry r:null as PENDING or UNSCORABLE. That is not a cosmetic logging gap - it silently corrupted my own shadow-boost prior this session, because Number.isFinite(Number(null)) is TRUE and admitted all 829 as ZERO-R observations (MOMENTUM read -0.289R against a true -0.539R). The proposal is RIGHT and the cost is real, but it edits a scorer on the box that trades. Decide with: node tasks/ai_decide.cjs morning-2sbud5 implemented|rejected|ignored \"why\" ON THE VPS.",
+      "ts": "2026-09-10T20:18:27.621Z",
+      "reviewDays": 7
+    },
+    {
+      "id": "ec3a9d85ddc0",
+      "box": "this box",
+      "severity": "AMBER",
+      "what": "2 AI proposal(s) nobody has decided",
+      "note": "RE-READ 2026-09-10, STILL YOURS TO DECIDE, and now reduced to ONE fix. Both laptop proposals (morning-bmd7lq, morning-l395u7) are the SAME defect restated: summarizeBarFreshness() at server/index.js:11615 copies usedForThisSignal onto every judged asset at :11658, so /api/checksystem can report barFreshness fully green while the engine is silently computing every signal on Yahoo proxy bars. The reducer already holds the per-asset value and throws all but one away. Classification: a reporting change on an endpoint, OFF both the signal and learning paths - but it needs a server restart, and this box is a client that still auto-executes until the book is flat, so a restart is not free. NOT implementing and NOT rejecting. Related evidence found today: the MOMENTUM episode breakdown shows the Yahoo-ticker rows (BTC-USD, GC=F, ^GSPC, n=295) are 100 percent UNSCORABLE - every one of them, which is consistent with proxy bars being used somewhere and nothing saying so. Decide with: node tasks/ai_decide.cjs morning-l395u7 implemented|rejected|ignored \"why\".",
+      "ts": "2026-09-10T20:18:21.706Z",
+      "reviewDays": 7
+    }
+  ],
+  "lastDecisionAt": "2026-09-11T05:39:56.226Z",
+  "source": "tasks/medic_ledger.jsonl",
+  "publishedAt": "2026-09-11T16:03:01.995Z",
+  "feedsTheGate": false
+}
