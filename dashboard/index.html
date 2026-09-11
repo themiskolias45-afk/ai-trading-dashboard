@@ -1063,7 +1063,7 @@
            is not yet known. -->
       <div class="book-row" id="book-stats" style="margin-top:14px">
         <div class="book-cell"><div class="book-label">Track record</div><div class="book-value" id="bk-track">—</div><div class="book-note" id="bk-track-d">trades to significance</div></div>
-        <div class="book-cell"><div class="book-label">Deflated Sharpe</div><div class="book-value" id="bk-dsr">—</div><div class="book-note" id="bk-dsr-d">·</div></div>
+        <div class="book-cell"><div class="book-label">Sharpe / trade</div><div class="book-value" id="bk-dsr">—</div><div class="book-note" id="bk-dsr-d">·</div></div>
         <div class="book-cell"><div class="book-label">Profit factor</div><div class="book-value" id="bk-pf">—</div><div class="book-note" id="bk-pf-d">·</div></div>
         <div class="book-cell"><div class="book-label">Expectancy</div><div class="book-value" id="bk-exp">—</div><div class="book-note" id="bk-exp-d">per closed trade</div></div>
         <div class="book-cell"><div class="book-label">Win rate</div><div class="book-value" id="bk-wr">—</div><div class="book-note" id="bk-wr-d">·</div></div>
@@ -7260,8 +7260,11 @@ async function loadBook() {
     const unreal = allPos.reduce((a, p) => a + (Number(p.profit) || 0), 0);
     const lots = (pos.exposure || []).reduce((a, e) => a + Math.abs(Number(e.netLots) || 0), 0);
     const hedged = (pos.exposure || []).filter(e => e.hedged).map(e => e.symbol);
+    // THIS BOX ONLY, said out loud. The medic has an open escalation that each dashboard
+    // shows roughly half the fleet's real exposure because it reads its own machine; a
+    // bare "5 positions" here would repeat that exact confusion on the home page.
     bkSet('bk-expo', allPos.length + (allPos.length === 1 ? ' position' : ' positions'), 'bk-flat',
-      lots ? lots.toFixed(2) + ' net lots' + (hedged.length ? ' · hedged: ' + hedged.join(', ') : '') : 'flat');
+      'THIS BOX ONLY · ' + (lots ? lots.toFixed(2) + ' net lots' + (hedged.length ? ' · hedged: ' + hedged.join(', ') : '') : 'flat'));
     bkSet('bk-unreal', bkMoney(unreal), bkClass(unreal), 'open P&L, account currency');
   } else {
     bkSet('bk-expo', '—', 'bk-idle', 'positions unreachable');
