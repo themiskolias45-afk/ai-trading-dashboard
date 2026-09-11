@@ -248,12 +248,25 @@ function buildMedic() {
     byAction[a] = (byAction[a] || 0) + 1;
   }
 
-  const open = [...latest.values()]
-    .filter(r => OPEN_ACTIONS.includes(r.action))
-    .map(r => ({
-      id: r.id, box: r.box, severity: r.severity, what: r.what,
-      note: r.note, ts: r.ts, reviewDays: r.reviewDays,
-    }));
+  /* LIVE escalations only. If the medic left a current view, an escalation counts only
+     while the doctor still reports that id; otherwise fall back to the ledger and label
+     the basis so the difference is visible rather than assumed. */
+  const cur = readMedicCurrent();
+  const liveIds = cur
+    ? new Set(cur.data.handled.map(f => f && (f.id || f.findingId)).filter(Boolean))
+    : null;
+
+  const toRow = r => ({
+    id: r.id, box: r.box, severity: r.severity, what: r.what,
+    note: r.note, ts: r.ts, reviewDays: r.reviewDays,
+  });
+
+  const escalatedOnLedger = [...latest.values()].filter(r => OPEN_ACTIONS.includes(r.action));
+  const open = (liveIds ? escalatedOnLedger.filter(r => liveIds.has(r.id)) : escalatedOnLedger)
+    .map(toRow);
+  const clearedButEscalated = liveIds
+    ? escalatedOnLedger.filter(r => !liveIds.has(r.id)).map(toRow)
+    : [];
 
   let newestTs = null;
   for (const r of latest.values()) {
