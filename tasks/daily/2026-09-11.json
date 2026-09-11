@@ -1,0 +1,24 @@
+{
+  "date": "2026-09-11",
+  "entries": [
+    {
+      "ts": "2026-09-11T03:05:10.995540+00:00",
+      "tag": "PLAN",
+      "text": "Daily Plan 2026-09-11 (levels: confluence-zones): |   BTC WAIT | R1 77439.35 S1 72860.3 |   GOLD WAIT | R1 4391.2 S1 4355.04 |   SPX WAIT | R1 7620.12 S1 7550 |   MACRO VIX 17.84 — NORMAL |   MACRO DXY 99.11 FLAT (+0.11% 5d) — a rising dollar is a headwind for Gold, a falling one a tailwind |   ⚠ 5 high-impact events today — check calendar"
+    },
+    {
+      "ts": "2026-09-11T03:27:58.297673+00:00",
+      "tag": "EOD",
+      "text": "EOD 2026-09-11: No trades today — rest day."
+    },
+    {
+      "ts": "2026-09-11T05:27:39.446901+00:00",
+      "tag": "SYSTEM",
+      "text": "2026-09-11 session close. BOTH BOXES RESTARTED AND HEALTHY, Medic live on both, both medic queues clear (laptop new=0 regressed=0 due=0; VPS one watching that self-clears on the next heartbeat). ai_decide --list: 0 unreviewed on BOTH boxes. 9 commits pushed, all LIVE - nothing waiting on a restart. Laptop server 05:00:58Z, VPS 05:11:08Z, doctor_selftest 90/90 both. RISK: both boxes sit at 2 consecutive losses of 3 INDEPENDENTLY on two separate demo accounts - one more loss on either halts that box; the laptop moved 1 to 2 between 05:01 and 06:25 today. 10 positions across the fleet (laptop 2, VPS 8), every one carrying a broker-side SL and TP, 0 without, verified before each restart. NOTHING BLOCKED: gate 70 unchanged on both, settingsError null, kill switch byte-identical before and after both restarts, learning.json unchanged, signal firing set WAIT/WAIT/WAIT before and after on both machines. STILL OWED (all deferred with call:right, none blocking): VPS coverage-audit 3 REDs where 267014 = SCHED_S_TASK_TERMINATED; summarizeBarFreshness returns only `worst` so a mixed bar-source state cannot be expressed; the crt evidence claim can never self-flag because it declares no staleness basis. OPEN QUESTION NOBODY HAS ANSWERED: what started a bridge without its ACCOUNT_TAG and minted the phantom `default` account on the laptop. Read first next session: memory/next_session_open_threads.md"
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-09-11T03:05:10.995540+00:00",
+  "updated_at": "2026-09-11T05:27:39.446901+00:00"
+}
