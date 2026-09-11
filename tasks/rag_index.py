@@ -29,6 +29,7 @@ USAGE
 """
 
 import json
+import hashlib
 import os
 import sys
 import urllib.request
@@ -80,6 +81,18 @@ def _get_collection(client, name: str):
 
 def _embed(model, texts: list[str]) -> list:
     return model.encode(texts, show_progress_bar=False).tolist()
+
+
+def _hash_doc(doc: str) -> str:
+    """Content fingerprint for one chunk.
+
+    Chunk ids are PATH-based (brain_<stem>_c<n>), so an id alone cannot tell an edited
+    memory from an unchanged one — which is why re-running the indexer used to serve a
+    corrected memory's OLD text until somebody ran --rebuild, and --rebuild is the
+    non-atomic operation that emptied this index on 2026-09-01. This makes a change
+    detectable so it can be refreshed IN PLACE, without deleting or rebuilding anything.
+    """
+    return hashlib.sha1(doc.encode("utf-8", "replace")).hexdigest()[:16]
 
 
 def _existing_ids(collection, rebuild: bool) -> set:
@@ -362,7 +375,7 @@ def _parse_frontmatter(text: str) -> tuple[dict, str]:
     return meta, body
 
 
-def index_brain(client, model, rebuild: bool = False):
+def index_brain(client, model, rebuild: bool = False, refresh_changed: bool = False):
     # THE DELETE IS DEFERRED, deliberately. It used to happen HERE, before the corpus
     # was read and before ~1700 chunks were embedded — so a --rebuild left the index
     # empty for the entire duration of the slow part, and a kill anywhere in there
@@ -684,6 +697,7 @@ def main():
 
     argv    = sys.argv[1:]
     rebuild = "--rebuild" in argv
+    refresh_changed = "--refresh-changed" in argv
     source  = "all"
     for i, a in enumerate(argv):
         if a == "--source" and i + 1 < len(argv):
@@ -704,7 +718,7 @@ def main():
     if source in ("all", "memory"):
         total += index_memory(client, model, rebuild)
     if source in ("all", "brain"):
-        total += index_brain(client, model, rebuild)
+        total += index_brain(client, model, rebuild, refresh_changed)
     if source in ("all", "decisions"):
         total += index_decisions(client, model, rebuild)
     if source in ("all", "vault"):
