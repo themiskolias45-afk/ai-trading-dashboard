@@ -167,7 +167,39 @@ try {
             $settings  = Invoke-RestMethod -Uri "$local/api/strategy-settings" -TimeoutSec 5
             $risk      = Invoke-RestMethod -Uri "$local/api/risk-status"       -TimeoutSec 5
             $armed = @(); $live = @(); $silent = @()
+            # A TAG THAT WAS NEVER EXPECTED IS NOT A SILENT BRIDGE.
+            # /api/risk-status grows a bucket for whatever account name was POSTED to it,
+            # and mt5_bridge.py posts `ACCOUNT_TAG or "default"` - so one bridge started
+            # without its tag mints a permanent "default" account that has never connected
+            # and never will. Measured 2026-09-11: the laptop grew exactly that, and the
+            # peer doctor on the box that TRADES raised a RED reading "bridge(s) silent:
+            # default - the peer is not trading and not managing its open positions". The
+            # peer was trading normally. A false RED of that severity is worse than no
+            # check: it is the one people learn to scroll past.
+            #
+            # MT5_EXPECTED_ACCOUNTS is the same source of truth the server's healer reads.
+            # Unset means "report everything", so a box that has not declared its accounts
+            # loses nothing by this - it fails OPEN, never closed.
+            $expectedTags = @()
+            if ($env:MT5_EXPECTED_ACCOUNTS) {
+                $expectedTags = @($env:MT5_EXPECTED_ACCOUNTS -split '[,;\s]+' | Where-Object { $_ })
+            } else {
+                # $keysFile is already resolved at the top of this script, but its default
+                # is the LAPTOP path - on any other box it does not exist, so fall back to
+                # the keys.env beside this script. Neither found means expectedTags stays
+                # empty and every tag is reported, which is the fail-open default.
+                $keysEnv = $keysFile
+                if (-not (Test-Path $keysEnv)) { $keysEnv = Join-Path (Split-Path -Parent $PSScriptRoot) 'keys.env' }
+                if (Test-Path $keysEnv) {
+                    $line = Get-Content $keysEnv | Where-Object { $_ -match '^\s*MT5_EXPECTED_ACCOUNTS\s*=' } | Select-Object -First 1
+                    if ($line) { $expectedTags = @(($line -split '=', 2)[1].Trim() -split '[,;\s]+' | Where-Object { $_ }) }
+                }
+            }
             foreach ($tag in $risk.accounts.PSObject.Properties.Name) {
+                if ($expectedTags.Count -gt 0 -and $expectedTags -notcontains $tag) {
+                    Write-MonitorLog ("account tag '" + $tag + "' is not in MT5_EXPECTED_ACCOUNTS - not reported as a bridge")
+                    continue
+                }
                 if ($risk.accounts.$tag.config.autoMode) { $armed += $tag }
                 try {
                     $health = Invoke-RestMethod -Uri "$local/api/mt5/health?account=$tag" -TimeoutSec 5
