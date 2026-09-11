@@ -279,7 +279,7 @@ function main() {
     if (pushed > 0) {
       try {
         console.log("\n  re-indexing on the VPS (" + pushed + " file(s) pushed)...");
-        const out = ssh("cd /d C:\\ai-trading-dashboard & python tasks\\rag_index.py --source brain", 600000);
+        const out = ssh("cd /d C:\\ai-trading-dashboard & python tasks\\rag_index.py " + REINDEX_ARGS.join(" "), 600000);
         const line = String(out).split(/\r?\n/).find((l) => /new document|total in index/.test(l));
         console.log("    " + (line ? line.trim() : "re-index ran"));
       } catch (e) {
