@@ -196,5 +196,29 @@ if ($counts) {
 
 Write-Output $text
 
+# ── Publish the ledger so the dashboard can show what is waiting on the user ─────
+# The SAME publisher the coverage audit calls, for the same reason: it runs when the
+# data it reports changes, so nothing new has to be registered with the scheduler.
+# It writes BOTH artefacts on every run, so calling it from each producer keeps each
+# cell as fresh as its own source and no fresher - publishing unchanged data more
+# often would only make a stale figure look current.
+#
+# WHY THE STRIP READS THIS FILE AND NOT /api/medic: that route re-runs the doctor
+# across BOTH boxes on a cache miss (server/index.js:14634) and offers no cache-only
+# read, so a strip on a refresh timer would fire 20-second fleet doctor runs on a page
+# reload. The ledger is already on disk and costs a file read.
+#
+# WRAPPED AND SILENCED. `exit 0` below is deliberate and documented at the top of this
+# file - findings are not a job failure - and a reporting artefact must not be able to
+# change that.
+try {
+    $publisher = Join-Path $ProjectRoot 'tasks\coverage_publish.cjs'
+    if (Test-Path $publisher) {
+        $nodeExe = (Get-Command node -ErrorAction SilentlyContinue).Source
+        if (-not $nodeExe) { $nodeExe = 'C:\Program Files\nodejs\node.exe' }
+        if (Test-Path $nodeExe) { & $nodeExe $publisher *> $null }
+    }
+} catch { }
+
 # The medic RAN. Findings are not a job failure - see the exit-code note at the top.
 exit 0
