@@ -167,6 +167,7 @@ function build() {
     verdict: red.length ? 'RED' : amber.length ? 'AMBER' : unknown.length ? 'UNKNOWN' : 'GREEN',
     red, amber, unknown,
     totalChecksParsed: parsed.checks.length,
+    publishedBy: require('os').hostname(),
     source: 'tasks/logs/coverage_audit.txt',
     publishedAt: new Date().toISOString(),
     feedsTheGate: false,
@@ -293,10 +294,10 @@ if (require.main === module) {
   if (argv.includes('--selftest')) process.exit(selftest() === 0 ? 0 : 1);
 
   const payload = build();
-  fs.writeFileSync(OUT, JSON.stringify(payload, null, 2), 'utf8');
+  writeJsonAtomic(OUT, payload);
 
   const medic = buildMedic();
-  fs.writeFileSync(MEDIC_OUT, JSON.stringify(medic, null, 2), 'utf8');
+  writeJsonAtomic(MEDIC_OUT, medic);
 
   if (argv.includes('--print')) {
     console.log(JSON.stringify({ coverage: payload, medic }, null, 2));
