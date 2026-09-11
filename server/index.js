@@ -14530,6 +14530,21 @@ function childFailureReason(err, stderr, fallbackErr) {
 function runMedicJson(where) {
   return new Promise((resolve) => {
     const isPeer = where === "peer";
+    // THE REACH IS ONE-WAY AND THAT IS A FACT ABOUT THE FLEET, NOT AN ERROR.
+    // The laptop holds an ssh key for the VPS; the VPS holds none for the laptop and
+    // cannot, because the laptop is not reachable from the internet. Without this, the
+    // VPS's own Medic tab would report its peer as unreachable with a raw ENOENT about a
+    // key path, which reads like something broke this morning. It has never been true
+    // there and no code change can make it true.
+    if (isPeer && !fs.existsSync(MEDIC_PEER_KEY)) {
+      return resolve({
+        source: where, ok: false,
+        error: "no ssh key on this box for the peer, so this machine can never read the peer's "
+             + "medic queue. Read it from the box that holds the key.",
+        counts: { new: 0, regressed: 0, due: 0, handled: 0, cleared: 0 },
+        new: [], regressed: [], due: [], handled: [], cleared: [],
+      });
+    }
     const file = isPeer ? "ssh" : process.execPath;
     const args = isPeer
       ? ["-i", MEDIC_PEER_KEY, "-o", "BatchMode=yes", "-o", "ConnectTimeout=10",
