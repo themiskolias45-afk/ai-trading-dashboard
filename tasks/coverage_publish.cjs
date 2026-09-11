@@ -286,15 +286,26 @@ if (require.main === module) {
 
   const payload = build();
   fs.writeFileSync(OUT, JSON.stringify(payload, null, 2), 'utf8');
-  if (argv.includes('--print')) console.log(JSON.stringify(payload, null, 2));
-  else {
+
+  const medic = buildMedic();
+  fs.writeFileSync(MEDIC_OUT, JSON.stringify(medic, null, 2), 'utf8');
+
+  if (argv.includes('--print')) {
+    console.log(JSON.stringify({ coverage: payload, medic }, null, 2));
+  } else {
     console.log('wrote ' + path.relative(ROOT, OUT)
       + '  verdict=' + (payload.verdict || 'UNAVAILABLE')
       + '  red=' + ((payload.red || []).length)
       + '  amber=' + ((payload.amber || []).length)
       + '  checks=' + (payload.totalChecksParsed || 0));
+    console.log('wrote ' + path.relative(ROOT, MEDIC_OUT)
+      + '  open=' + (medic.openCount === undefined ? '?' : medic.openCount)
+      + '  findings=' + (medic.distinctFindings === undefined ? '?' : medic.distinctFindings));
   }
   process.exit(0);
 }
 
-module.exports = { build, parseBlock, lastBlockLines, toIso, selftest, OUT, LOG };
+module.exports = {
+  build, buildMedic, parseBlock, lastBlockLines, toIso, selftest,
+  OUT, LOG, MEDIC_OUT, MEDIC_LEDGER,
+};
