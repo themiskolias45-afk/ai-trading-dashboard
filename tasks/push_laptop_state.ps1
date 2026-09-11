@@ -97,7 +97,20 @@ if ($DryRun) {
 
 # One dated folder per run, so an overwrite can never destroy an earlier good copy.
 $remoteDir = $RemoteRoot + '/' + $day + '/' + $stamp
-& ssh -o BatchMode=yes -o ConnectTimeout=20 vps ("cmd /c mkdir """ + ($remoteDir -replace '/','\') + """ 2>nul") 2>&1 | Out-Null
+# KEEPALIVES, ON EVERY ssh AND scp CALL IN THIS FILE.
+#
+# ConnectTimeout was already on all four and did not help, because it bounds only the TCP
+# handshake. Measured 2026-09-11 04:13: the log shows "EXECUTE -> vps ... 8 file(s),
+# 9.8 MB" and then no completion line at all. It CONNECTED and stalled mid-transfer, which
+# is after the only window ConnectTimeout can fire in - so the run sat there until the
+# task's PT30M kill, and the VERIFY BY READING BACK below never got to report anything.
+# A longer ExecLimit only hangs longer; it is deliberately not touched.
+#
+# ServerAliveInterval=15 with ServerAliveCountMax=4 means four unanswered keepalives end
+# the session at ~60s. The script then fails HONESTLY through its own verification path
+# instead of being killed before reaching it. A job that dies loudly at a minute is worth
+# more than one that is silently killed at thirty.
+& ssh -o BatchMode=yes -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 vps ("cmd /c mkdir """ + ($remoteDir -replace '/','\') + """ 2>nul") 2>&1 | Out-Null
 
 $sent = 0; $failed = 0; $verified = 0
 foreach ($f in $present) {
