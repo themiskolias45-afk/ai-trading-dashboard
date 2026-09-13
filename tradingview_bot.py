@@ -1126,6 +1126,19 @@ def add_saved_script_to_chart(page):
 # TradingView's classes are build-hashed (title-quatTGAC, container-cDWXFIqV) and
 # change without notice; a row is reliably the first ancestor that is much wider than
 # the text and roughly one list-row tall.
+# The value of the focused text field, or None when focus is not in one.
+#
+# This is the only reliable proof that typed keys reached the indicators SEARCH BOX and
+# not, say, the Pine editor - the corruption path make_focus_safe exists to prevent, and
+# the one a probe hit for real on 2026-09-13 while the editor happened to be open.
+JS_ACTIVE_INPUT_VALUE = """() => {
+  const a = document.activeElement;
+  if (!a) return null;
+  const tag = a.tagName;
+  if (tag !== 'INPUT' && tag !== 'TEXTAREA') return null;
+  return a.value === undefined ? null : a.value;
+}"""
+
 JS_VISIBLE_SCRIPT_ROWS = """(name) => {
   // MATCH ON THE ROW'S TEXT, NEVER ON A LEAF'S.
   //
