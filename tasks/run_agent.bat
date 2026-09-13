@@ -89,24 +89,29 @@ REM A lock older than the task's own ExecutionTimeLimit (PT1H) belongs to a run 
 REM cannot still be alive - a killed process never reached its cleanup. Take it over,
 REM so a single hard kill cannot disable this agent forever. 90 minutes, not 60, so a
 REM run that is merely slow is never robbed of its lock mid-flight.
-if exist "%AGENTLOCK%" (
-  for /f %%S in ('powershell -NoProfile -Command ^
-    "$d=Get-Item -LiteralPath '%AGENTLOCK%' -ErrorAction SilentlyContinue; if($d -and ((Get-Date)-$d.CreationTime).TotalMinutes -gt 90){'STALE'}else{'FRESH'}"') do set "LOCKAGE=%%S"
-  if "!LOCKAGE!"=="STALE" (
-    echo [%DATE% %TIME%] %AGENT%: taking over a stale lock ^(older than 90 min^) >> "%LOG%"
-    rmdir "%AGENTLOCK%" 2>nul
-  )
-)
+REM GOTO, NOT NESTED BLOCKS. The first version of this used if-blocks with a "^"
+REM line continuation and "endlocal ^& exit /b" inside them; cmd mis-parsed it and the
+REM whole script exited 255 without ever printing its own skip message. Flat labels
+REM have none of that escaping surface.
+if not exist "%AGENTLOCK%" goto :take_agent_lock
 
+for /f %%S in ('powershell -NoProfile -Command "$d=Get-Item -LiteralPath '%AGENTLOCK%' -ErrorAction SilentlyContinue; if($d -and ((Get-Date)-$d.CreationTime).TotalMinutes -gt 90){'STALE'}else{'FRESH'}"') do set "LOCKAGE=%%S"
+if not "%LOCKAGE%"=="STALE" goto :take_agent_lock
+echo [%DATE% %TIME%] %AGENT%: taking over a stale lock, older than 90 min >> "%LOG%"
+rmdir "%AGENTLOCK%" 2>nul
+
+:take_agent_lock
 mkdir "%AGENTLOCK%" 2>nul
-if errorlevel 1 (
-  REM EXIT 0, DELIBERATELY. The other run is doing the work, so this is not a failure
-  REM and must not paint the health board red - a false RED here trains the reader to
-  REM ignore the board, which is how a real one gets missed.
-  echo. >> "%LOG%"
-  echo [%DATE% %TIME%] %AGENT%: another run holds the lock - skipping this one, not a failure >> "%LOG%"
-  endlocal ^& exit /b 0
-)
+if not errorlevel 1 goto :agent_lock_held
+
+REM EXIT 0, DELIBERATELY. The other run is doing the work, so this is not a failure and
+REM must not paint the health board red - a false RED here trains the reader to ignore
+REM the board, which is how a real one gets missed.
+echo. >> "%LOG%"
+echo [%DATE% %TIME%] %AGENT%: another run holds the lock - skipping this one, not a failure >> "%LOG%"
+endlocal & exit /b 0
+
+:agent_lock_held
 
 set NONINTERACTIVE=You are a non-interactive subprocess in an automated pipeline. There is no human reading your output and no one to answer a question. Never greet, never introduce yourself, never ask for confirmation. Do the work described, write your findings, then stop.
 
