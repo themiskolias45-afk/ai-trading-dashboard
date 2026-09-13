@@ -183,6 +183,18 @@ TRANSIENT_RETRY_MINUTES = 25
 # expiry NEVER DOES. It waits on a human. So it parks on a slow cadence rather than a
 # tight one, and the message must name the action instead of saying "try later", which
 # would be a lie.
+# THIRD RECURRENCE, 2026-09-13, and the comment above predicted it: "this list is a
+# guess about someone else's copy". An account awaiting renewal prints
+# "Your organization has disabled Claude subscription access for Claude Code · Use an
+# Anthropic API key instead, or ask your admin to enable access" and matches NOTHING
+# above — not "unauthorized", not "invalid api key" (it says to USE an API key, it does
+# not say one is invalid). So park() classified a billing state as a real failure and
+# DESTROYED the brief, which is the exact failure this queue exists to prevent. Measured
+# the same day across six jobs: code-reviewer, tester, medic, agent_log, daily, weekly.
+# The API rail's sibling wording ("Your credit balance is too low") had the same gap;
+# tasks/weekly_report_index.cjs already knew "credit balance" and this list did not.
+# A billing state belongs here rather than in LIMIT_MARKERS for the reason stated above:
+# a limit clears ON ITS OWN, a renewal waits on a human. Same 6h cadence, same message.
 AUTH_MARKERS = (
     "failed to authenticate",
     "oauth session expired",
@@ -192,6 +204,9 @@ AUTH_MARKERS = (
     "authentication failed",
     "invalid api key",
     "unauthorized",
+    "subscription access",
+    "credit balance",
+    "ask your admin",
 )
 
 # Six hours, not the transient 25 minutes. Nothing the machine does will fix this, so a
