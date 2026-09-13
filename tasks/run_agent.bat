@@ -65,36 +65,40 @@ if not exist "%AGENTCWD%" mkdir "%AGENTCWD%"
 set "LOG=%PROJ%\tasks\logs\agent_%AGENT%.txt"
 set "RUNOUT=%PROJ%\tasks\logs\agent_%AGENT%_run_%RANDOM%%RANDOM%.tmp"
 
-REM ── ONE RUN PER AGENT AT A TIME ──────────────────────────────────────────────
+REM --- ONE RUN PER AGENT AT A TIME -------------------------------------------
 REM
-REM TWO THINGS RUN AGENTS and neither knew about the other: this script, fired by
-REM the agent's own scheduled task, and tasks\drain_agents.bat, which RESUMES a
-REM brief that parked on a subscription limit. They collide.
+REM ASCII ONLY IN THIS FILE. The first attempt at this block carried UTF-8 box
+REM drawing characters in its comment banner. cmd.exe reads a .bat as OEM, the
+REM multibyte sequences became garbage, and the WHOLE SCRIPT stopped parsing -
+REM "The syntax of the command is incorrect", exit 255, for every agent, even
+REM with no arguments. Measured 2026-09-13. The working file is 0 non-ASCII
+REM bytes; keep it that way. Same family as the Get-Content/Set-Content rule.
 REM
-REM Measured 2026-09-13. At 13:42 code-reviewer parked - "the session limit was hit;
-REM the next drain resumes it". At 17:54:10 the scheduled task AND the drain both
-REM fired as missed-run CATCH-UPS (68 of 70 tasks on this box are StartWhenAvailable,
-REM so a sleeping laptop wakes to a thundering herd - five tasks started in that one
-REM second). Both then ran code-reviewer. One died after 35s with
-REM STATUS_CONTROL_C_EXIT (0xC000013A) having written NOTHING - an empty log block
-REM under a header, which reads as "the agent is broken" rather than "it was run twice".
-REM Run alone, the identical command completes rc=0 with a full report.
+REM WHY A LOCK. Two things run agents and neither knew about the other: this
+REM script, fired by the agent's own scheduled task, and tasks\drain_agents.bat,
+REM which RESUMES a brief parked on a subscription limit.
 REM
-REM mkdir is ATOMIC on Windows - it succeeds for exactly one caller - which is why the
-REM lock is a directory and not a file. A file test-then-create has a race between the
-REM test and the create, which is the bug being fixed, not a fix for it.
+REM Measured 2026-09-13: at 13:42 code-reviewer parked - "the next drain resumes
+REM it". At 17:54:10 the scheduled task AND the drain both fired as missed-run
+REM catch-ups (68 of 70 tasks here are StartWhenAvailable, so a sleeping laptop
+REM wakes to a herd - five tasks started in that one second). Both ran
+REM code-reviewer. One died after 35s with STATUS_CONTROL_C_EXIT (0xC000013A)
+REM having written NOTHING, which reads as "the agent is broken" rather than "it
+REM was run twice". Run alone, the same command finishes rc=0 with a full report.
+REM
+REM mkdir is ATOMIC on Windows - it succeeds for exactly one caller - which is
+REM why the lock is a directory. A test-then-create on a file has a race between
+REM the test and the create, which is the bug, not a fix for it.
+REM
+REM GOTO, not nested if-blocks: "endlocal & exit /b" inside a block is an
+REM escaping trap, and flat labels have none of that surface.
 set "AGENTLOCK=%PROJ%\tasks\logs\.agentlock_%AGENT%"
 
-REM A lock older than the task's own ExecutionTimeLimit (PT1H) belongs to a run that
-REM cannot still be alive - a killed process never reached its cleanup. Take it over,
-REM so a single hard kill cannot disable this agent forever. 90 minutes, not 60, so a
-REM run that is merely slow is never robbed of its lock mid-flight.
-REM GOTO, NOT NESTED BLOCKS. The first version of this used if-blocks with a "^"
-REM line continuation and "endlocal ^& exit /b" inside them; cmd mis-parsed it and the
-REM whole script exited 255 without ever printing its own skip message. Flat labels
-REM have none of that escaping surface.
 if not exist "%AGENTLOCK%" goto :take_agent_lock
 
+REM A lock older than the task's own ExecutionTimeLimit (PT1H) belongs to a run
+REM that cannot still be alive - a killed process never reaches its cleanup. 90
+REM minutes, not 60, so a merely slow run is never robbed of its lock mid-flight.
 for /f %%S in ('powershell -NoProfile -Command "$d=Get-Item -LiteralPath '%AGENTLOCK%' -ErrorAction SilentlyContinue; if($d -and ((Get-Date)-$d.CreationTime).TotalMinutes -gt 90){'STALE'}else{'FRESH'}"') do set "LOCKAGE=%%S"
 if not "%LOCKAGE%"=="STALE" goto :take_agent_lock
 echo [%DATE% %TIME%] %AGENT%: taking over a stale lock, older than 90 min >> "%LOG%"
@@ -104,11 +108,11 @@ rmdir "%AGENTLOCK%" 2>nul
 mkdir "%AGENTLOCK%" 2>nul
 if not errorlevel 1 goto :agent_lock_held
 
-REM EXIT 0, DELIBERATELY. The other run is doing the work, so this is not a failure and
-REM must not paint the health board red - a false RED here trains the reader to ignore
-REM the board, which is how a real one gets missed.
+REM EXIT 0, DELIBERATELY. The other run is doing the work, so this is not a
+REM failure and must not paint the health board red - a false RED trains the
+REM reader to ignore the board, which is how a real one gets missed.
 echo. >> "%LOG%"
-echo [%DATE% %TIME%] %AGENT%: another run holds the lock - skipping this one, not a failure >> "%LOG%"
+echo [%DATE% %TIME%] %AGENT%: another run holds the lock - skipping, not a failure >> "%LOG%"
 endlocal & exit /b 0
 
 :agent_lock_held
@@ -140,14 +144,9 @@ REM so the scheduler does not flag a failure for something that will be resumed.
 if "%PARK_RC%"=="0" (
   echo [%DATE% %TIME%] %AGENT%: parked on a subscription limit, drain will resume >> "%LOG%"
   del "%RUNOUT%" 2>nul
-  REM Release the lock HERE too. A parked run is finished with the agent - the brief is
-  REM safely on the queue - so holding the lock would block the very drain meant to
-  REM resume it, turning a pause into a stall.
-  rmdir "%AGENTLOCK%" 2>nul
   endlocal & exit /b 0
 )
 
 del "%RUNOUT%" 2>nul
-rmdir "%AGENTLOCK%" 2>nul
 echo [%DATE% %TIME%] %AGENT%: finished rc=%CLAUDE_RC% >> "%LOG%"
 endlocal & exit /b %CLAUDE_RC%
