@@ -144,9 +144,14 @@ REM so the scheduler does not flag a failure for something that will be resumed.
 if "%PARK_RC%"=="0" (
   echo [%DATE% %TIME%] %AGENT%: parked on a subscription limit, drain will resume >> "%LOG%"
   del "%RUNOUT%" 2>nul
+  rmdir "%AGENTLOCK%" 2>nul
   endlocal & exit /b 0
 )
 
 del "%RUNOUT%" 2>nul
+REM Release the lock on BOTH exits. A parked run is finished with the agent - its
+REM brief is safely on the queue - so holding the lock would block the very drain
+REM meant to resume it, turning a pause into a stall.
+rmdir "%AGENTLOCK%" 2>nul
 echo [%DATE% %TIME%] %AGENT%: finished rc=%CLAUDE_RC% >> "%LOG%"
 endlocal & exit /b %CLAUDE_RC%
