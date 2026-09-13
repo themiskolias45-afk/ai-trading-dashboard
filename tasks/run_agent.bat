@@ -65,6 +65,49 @@ if not exist "%AGENTCWD%" mkdir "%AGENTCWD%"
 set "LOG=%PROJ%\tasks\logs\agent_%AGENT%.txt"
 set "RUNOUT=%PROJ%\tasks\logs\agent_%AGENT%_run_%RANDOM%%RANDOM%.tmp"
 
+REM ── ONE RUN PER AGENT AT A TIME ──────────────────────────────────────────────
+REM
+REM TWO THINGS RUN AGENTS and neither knew about the other: this script, fired by
+REM the agent's own scheduled task, and tasks\drain_agents.bat, which RESUMES a
+REM brief that parked on a subscription limit. They collide.
+REM
+REM Measured 2026-09-13. At 13:42 code-reviewer parked - "the session limit was hit;
+REM the next drain resumes it". At 17:54:10 the scheduled task AND the drain both
+REM fired as missed-run CATCH-UPS (68 of 70 tasks on this box are StartWhenAvailable,
+REM so a sleeping laptop wakes to a thundering herd - five tasks started in that one
+REM second). Both then ran code-reviewer. One died after 35s with
+REM STATUS_CONTROL_C_EXIT (0xC000013A) having written NOTHING - an empty log block
+REM under a header, which reads as "the agent is broken" rather than "it was run twice".
+REM Run alone, the identical command completes rc=0 with a full report.
+REM
+REM mkdir is ATOMIC on Windows - it succeeds for exactly one caller - which is why the
+REM lock is a directory and not a file. A file test-then-create has a race between the
+REM test and the create, which is the bug being fixed, not a fix for it.
+set "AGENTLOCK=%PROJ%\tasks\logs\.agentlock_%AGENT%"
+
+REM A lock older than the task's own ExecutionTimeLimit (PT1H) belongs to a run that
+REM cannot still be alive - a killed process never reached its cleanup. Take it over,
+REM so a single hard kill cannot disable this agent forever. 90 minutes, not 60, so a
+REM run that is merely slow is never robbed of its lock mid-flight.
+if exist "%AGENTLOCK%" (
+  for /f %%S in ('powershell -NoProfile -Command ^
+    "$d=Get-Item -LiteralPath '%AGENTLOCK%' -ErrorAction SilentlyContinue; if($d -and ((Get-Date)-$d.CreationTime).TotalMinutes -gt 90){'STALE'}else{'FRESH'}"') do set "LOCKAGE=%%S"
+  if "!LOCKAGE!"=="STALE" (
+    echo [%DATE% %TIME%] %AGENT%: taking over a stale lock ^(older than 90 min^) >> "%LOG%"
+    rmdir "%AGENTLOCK%" 2>nul
+  )
+)
+
+mkdir "%AGENTLOCK%" 2>nul
+if errorlevel 1 (
+  REM EXIT 0, DELIBERATELY. The other run is doing the work, so this is not a failure
+  REM and must not paint the health board red - a false RED here trains the reader to
+  REM ignore the board, which is how a real one gets missed.
+  echo. >> "%LOG%"
+  echo [%DATE% %TIME%] %AGENT%: another run holds the lock - skipping this one, not a failure >> "%LOG%"
+  endlocal ^& exit /b 0
+)
+
 set NONINTERACTIVE=You are a non-interactive subprocess in an automated pipeline. There is no human reading your output and no one to answer a question. Never greet, never introduce yourself, never ask for confirmation. Do the work described, write your findings, then stop.
 
 REM Subscription, not API credit.
