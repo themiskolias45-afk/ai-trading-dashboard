@@ -1122,28 +1122,36 @@ def add_saved_script_to_chart(page):
 # change without notice; a row is reliably the first ancestor that is much wider than
 # the text and roughly one list-row tall.
 JS_VISIBLE_SCRIPT_ROWS = """(name) => {
-  const out = [];
-  const seen = new Set();
-  for (const e of document.querySelectorAll('*')) {
-    if (e.children.length) continue;
-    if ((e.textContent || '').trim() !== name) continue;
-    const tr = e.getBoundingClientRect();
-    if (e.offsetParent === null || tr.width === 0 || tr.height === 0) continue;
-    let n = e;
+  const rowBox = (leaf) => {
+    let n = leaf;
     for (let i = 0; i < 5 && n.parentElement; i++) {
       n = n.parentElement;
       const r = n.getBoundingClientRect();
-      if (r.width > 200 && r.height >= 24 && r.height <= 60) {
-        const key = Math.round(r.y) + ':' + Math.round(r.x);
-        if (!seen.has(key)) {
-          seen.add(key);
-          out.push({x: r.x, y: r.y, w: r.width, h: r.height});
-        }
-        break;
-      }
+      if (r.width > 200 && r.height >= 24 && r.height <= 60) return r;
     }
+    return null;
+  };
+  const rows = [];
+  const matchSeen = new Set();
+  const allSeen = new Set();
+  for (const e of document.querySelectorAll('*')) {
+    if (e.children.length) continue;
+    const text = (e.textContent || '').trim();
+    if (!text || text.length > 80) continue;
+    const tr = e.getBoundingClientRect();
+    if (e.offsetParent === null || tr.width === 0 || tr.height === 0) continue;
+    const r = rowBox(e);
+    if (!r) continue;
+    const key = Math.round(r.y) + ':' + Math.round(r.x);
+    // `total` counts every visible RESULT ROW, which is how the caller proves the
+    // search box actually filtered instead of assuming it did.
+    allSeen.add(key);
+    if (text !== name) continue;
+    if (matchSeen.has(key)) continue;
+    matchSeen.add(key);
+    rows.push({x: r.x, y: r.y, w: r.width, h: r.height});
   }
-  return out;
+  return {rows: rows, total: allSeen.size};
 }"""
 
 # Find an element by its EXACT text, but only one that is actually on screen.
