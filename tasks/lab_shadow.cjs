@@ -588,4 +588,5 @@ if (require.main === module) {
   }
   process.exit(code);
 }
-module.exports = { collect: collect, readJsonl: readJsonl, selftest: selftest, rDiffers: rDiffers };
+module.exports = { collect: collect, readJsonl: readJsonl, selftest: selftest, rDiffers: rDiffers,
+                   renameWithRetry: renameWithRetry };
