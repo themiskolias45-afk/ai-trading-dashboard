@@ -1071,31 +1071,36 @@ def add_saved_script_to_chart(page):
     # Typing into the search box narrows the list to ONE row, so there is no second row
     # for a stale coordinate to hit. The same sequence added the correct study first try.
     # The dialog focuses its search field on open, so the keystrokes land there.
+    # SELECT-ALL FIRST: the search box is STICKY. Measured 2026-09-13 - reopening the
+    # dialog showed it still holding the previous run's text, so typing without clearing
+    # would append and match nothing.
+    page.keyboard.press("Control+a")
     page.keyboard.type(SAVED_SCRIPT_NAME, delay=60)
     page.wait_for_timeout(3500)
 
-    found = page.evaluate(JS_VISIBLE_SCRIPT_ROWS, SAVED_SCRIPT_NAME)
-    rows, total = found["rows"], found["total"]
-
-    # PROVE THE SEARCH ACTUALLY FILTERED, rather than assuming it.
+    # PROVE THE KEYSTROKES REACHED THE SEARCH BOX, rather than assuming it.
     #
-    # "exactly one row matches the title" is true in the UNFILTERED list too, because
-    # only one saved script carries this name - so on its own that check would pass
-    # while the full virtualised list was still on screen, and the stale-coordinate bug
-    # this whole change exists to kill would be reachable again. If the keystrokes went
-    # somewhere other than the search field, the row COUNT is what gives it away: the
-    # unfiltered My-scripts list is ~30 rows on this account.
-    if total > MAX_ROWS_AFTER_SEARCH:
-        print(f"[TV] indicators search did not filter the list ({total} rows still shown) - "
-              f"the keystrokes did not reach the search box; refusing to click")
+    # "exactly one row matches the title" is ALSO true of the unfiltered list, because
+    # only one saved script carries this name - measured: unfiltered 78 rows/1 match,
+    # filtered 43 rows/1 match. So neither the match count nor the row count separates
+    # the two states, and a guard built on either would pass while the full virtualised
+    # list was still on screen, leaving the stale-coordinate bug reachable.
+    #
+    # What DOES separate them is the search field itself: if the keys went anywhere else
+    # (the Pine editor being the dangerous case) its value will not be this name.
+    typed = page.evaluate(JS_ACTIVE_INPUT_VALUE)
+    if typed != SAVED_SCRIPT_NAME:
+        print(f"[TV] indicators search box did not receive the name (holds {typed!r}) - "
+              f"the keystrokes did not land in the search field; refusing to click")
         page.keyboard.press("Escape")
         return False
 
+    rows = page.evaluate(JS_VISIBLE_SCRIPT_ROWS, SAVED_SCRIPT_NAME)["rows"]
     # Exactly one, or refuse. Clicking into an ambiguous list is the original bug, and a
     # wrong row silently edits the user's layout - which is worse than not drawing.
     if len(rows) != 1:
-        print(f"[TV] indicators search for {SAVED_SCRIPT_NAME!r} matched {len(rows)} row(s) "
-              f"of {total} shown, expected exactly 1 - refusing to click")
+        print(f"[TV] indicators search for {SAVED_SCRIPT_NAME!r} matched {len(rows)} row(s), "
+              f"expected exactly 1 - refusing to click")
         page.keyboard.press("Escape")
         return False
     row = rows[0]
