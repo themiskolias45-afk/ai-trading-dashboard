@@ -1122,36 +1122,36 @@ def add_saved_script_to_chart(page):
 # change without notice; a row is reliably the first ancestor that is much wider than
 # the text and roughly one list-row tall.
 JS_VISIBLE_SCRIPT_ROWS = """(name) => {
-  const rowBox = (leaf) => {
-    let n = leaf;
-    for (let i = 0; i < 5 && n.parentElement; i++) {
-      n = n.parentElement;
-      const r = n.getBoundingClientRect();
-      if (r.width > 200 && r.height >= 24 && r.height <= 60) return r;
-    }
-    return null;
-  };
-  const rows = [];
-  const matchSeen = new Set();
-  const allSeen = new Set();
-  for (const e of document.querySelectorAll('*')) {
-    if (e.children.length) continue;
-    const text = (e.textContent || '').trim();
-    if (!text || text.length > 80) continue;
-    const tr = e.getBoundingClientRect();
-    if (e.offsetParent === null || tr.width === 0 || tr.height === 0) continue;
-    const r = rowBox(e);
-    if (!r) continue;
-    const key = Math.round(r.y) + ':' + Math.round(r.x);
-    // `total` counts every visible RESULT ROW, which is how the caller proves the
-    // search box actually filtered instead of assuming it did.
-    allSeen.add(key);
-    if (text !== name) continue;
-    if (matchSeen.has(key)) continue;
-    matchSeen.add(key);
-    rows.push({x: r.x, y: r.y, w: r.width, h: r.height});
+  // MATCH ON THE ROW'S TEXT, NEVER ON A LEAF'S.
+  //
+  // Once the search box filters, TradingView wraps the matched substring to highlight
+  // it, so the title is split across several elements and NO leaf holds the full name
+  // any more. Measured 2026-09-13: leaf-exact matching returned 1 row in the unfiltered
+  // list and 0 in the filtered one - precisely backwards from what is needed.
+  // A row's innerText re-joins those fragments, so it survives the highlighting.
+  const NL = String.fromCharCode(10);
+  const widestAtY = new Map();
+  for (const el of document.querySelectorAll('div')) {
+    if (el.offsetParent === null) continue;
+    const r = el.getBoundingClientRect();
+    // Geometry, never class: TradingView's class names are build-hashed and rot.
+    if (r.width <= 200 || r.height < 24 || r.height > 60) continue;
+    const txt = (el.innerText || '').trim();
+    if (!txt) continue;
+    const y = Math.round(r.y);
+    const prev = widestAtY.get(y);
+    // Nested wrappers share a row's y; the widest is the row itself.
+    if (!prev || r.width > prev.r.width) widestAtY.set(y, {r: r, txt: txt});
   }
-  return {rows: rows, total: allSeen.size};
+  const rows = [];
+  widestAtY.forEach((v) => {
+    if (v.txt.split(NL)[0].trim() === name) {
+      rows.push({x: v.r.x, y: v.r.y, w: v.r.width, h: v.r.height});
+    }
+  });
+  // `total` is every visible result row, which is how the caller proves the search box
+  // actually filtered rather than assuming it did.
+  return {rows: rows, total: widestAtY.size};
 }"""
 
 # Find an element by its EXACT text, but only one that is actually on screen.
