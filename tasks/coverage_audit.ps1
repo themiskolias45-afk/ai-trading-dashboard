@@ -127,6 +127,24 @@ if ($tasks.Count -eq 0) {
             #
             # Only rc=4, only these two tasks. A real crash still reads RED.
             Add-Check 'tasks' $t.TaskName 'GREEN' "ok ${ageH}h ago (exit 4 = skipped, bars unchanged since the last run - the intended result)"
+        } elseif ($t.TaskName -match 'Refresh\s*Bars' -and $i.LastTaskResult -eq 3) {
+            # SAME CONVENTION AS STRATEGY SEARCH ABOVE: a deliberate refusal, not a fault.
+            # tasks\refresh_bars.cjs:126 is process.exit(3) with the comment "3 = correctly
+            # refused, distinct from 1 = could not tell", and it fires on ONE condition -
+            # a position is open, so re-exporting bars would open a second MT5 client and
+            # a conflict could drop the bridge, leaving live positions unmanaged. The
+            # script says so itself: "this tool is meant to be run often and refuse most
+            # of the time."
+            #
+            # Read literally, that made a tool working exactly as specified report RED on
+            # most days - measured 2026-09-13 with three positions open on both boxes,
+            # refusing correctly every run. Because doctor.cjs reads this report, that one
+            # false RED dragged the health board red daily and taught the reader to skip it,
+            # which is the cost the Strategy Search note above already paid once.
+            #
+            # Only rc=3, only this task. exit(3) appears EXACTLY ONCE in refresh_bars.cjs
+            # and every real failure there exits 1 or 2, so a genuine fault still reads RED.
+            Add-Check 'tasks' $t.TaskName 'GREEN' "ok ${ageH}h ago (exit 3 = correctly refused, a position is open - the intended result on most days)"
         } elseif ($t.TaskName -match 'Doctor' -and $i.LastTaskResult -eq 1) {
             # SAME CONVENTION AS COVERAGE AUDIT BELOW, and it must be exempted for the
             # same reason. tasks\doctor.cjs:1275 exits 1 when any finding is RED - by
