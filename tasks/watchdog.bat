@@ -84,8 +84,9 @@ if !SERVER_DOWN! EQU 1 if !RECENT! EQU 0 (
     taskkill /f /fi "windowtitle eq SmartEntry Server" >nul 2>&1
     timeout /t 3 /nobreak >nul
 
-    REM Restart server
-    start "SmartEntry Server" /min cmd /c "cd server && node index.js >> tasks\logs\server_log.txt 2>&1"
+    REM Restart server -- but only if the taskkill above actually freed the port.
+    REM See :start_server_unless_port_held for why the taskkill cannot be trusted.
+    call :start_server_unless_port_held
     timeout /t 12 /nobreak >nul
 
     REM Verify restart worked
