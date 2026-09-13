@@ -64,12 +64,23 @@ STEP 1 — SYSTEM HEALTH (deep check, all in parallel):
 
 STEP 2 — DEEP ERROR SEARCH:
   Read the LAST 200 lines of each log that exists:
-    tasks\logs\server_log.txt
-    tasks\logs\bridge_log.txt
+    tasks\logs\server_log.txt      (LIVE)
+    tasks\logs\bridge_log_A.txt    (LIVE — the per-account bridge log. NOT bridge_log.txt,
+    which is a DEAD FILE frozen at 2026-08-02 and was named here until 2026-09-13. Reading
+    it returned 42-day-old lines whose timestamps look like today's, which is worse than
+    finding nothing: on 2026-09-13 it showed "SP500:WAIT" all day while the live log
+    carried 11 "STRATEGY LIMIT blocked BUY SP500" lines. Per account: bridge_log_<TAG>.txt)
+    tasks\logs\server_crash.txt    (LIVE — uncaughtException traces; EADDRINUSE lives here)
     tasks\logs\error_log.txt   (DOES NOT EXIST — verified 2026-09-07. Scanning a missing
     file finds nothing, which reads exactly like finding no errors. Use the real logs:
     tasks\logs\server_log.txt, server_crash.txt, and the per-job logs in tasks\logs\)
-    tasks\logs\startup_log.txt
+    tasks\logs\startup_log.txt (DEAD since 2026-07-24 — verified 2026-09-13. Kept only so
+    a future run does not "rediscover" it; it is not evidence of anything current.)
+
+  DO NOT TRUST A LOG'S CONTENTS WITHOUT ITS MTIME. Both dead files above have plausible
+  in-band timestamps and no year, so a stale line is indistinguishable from a fresh one.
+  Check `ls -la --time-style=full-iso` on every log before quoting it, and say the age.
+  The general form: find tasks/logs -name '*.txt' -mtime -1 lists what is actually live.
 
   Scan for: ERROR, WARN, TypeError, undefined is not, Cannot read, ECONNREFUSED,
             SyntaxError, 500, Uncaught, unhandledRejection, memory leak
