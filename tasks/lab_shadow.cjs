@@ -40,6 +40,8 @@
 
 const fs = require('fs');
 const path = require('path');
+// Only the selftest uses this, for a scratch dir to exercise the rename retry in.
+const os = require('os');
 
 const ROOT = path.join(__dirname, '..');
 const { STRATEGIES, loadBars, runStrategy } = require(path.join(__dirname, 'lab_strategies.cjs'));
