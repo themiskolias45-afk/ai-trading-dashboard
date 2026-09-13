@@ -1082,6 +1082,42 @@ def add_saved_script_to_chart(page):
     return True
 
 
+# Every visible RESULT ROW in the indicators dialog whose title is exactly `name`.
+#
+# Used only after the search box has narrowed the list, so the expected answer is one
+# row. Returning a LIST rather than the first match is the point: the caller refuses to
+# click unless there is exactly one, because clicking into an ambiguous virtualised list
+# is what silently added the wrong indicator on 2026-09-13.
+#
+# It walks UP from the title to the clickable row by GEOMETRY, never by class name.
+# TradingView's classes are build-hashed (title-quatTGAC, container-cDWXFIqV) and
+# change without notice; a row is reliably the first ancestor that is much wider than
+# the text and roughly one list-row tall.
+JS_VISIBLE_SCRIPT_ROWS = """(name) => {
+  const out = [];
+  const seen = new Set();
+  for (const e of document.querySelectorAll('*')) {
+    if (e.children.length) continue;
+    if ((e.textContent || '').trim() !== name) continue;
+    const tr = e.getBoundingClientRect();
+    if (e.offsetParent === null || tr.width === 0 || tr.height === 0) continue;
+    let n = e;
+    for (let i = 0; i < 5 && n.parentElement; i++) {
+      n = n.parentElement;
+      const r = n.getBoundingClientRect();
+      if (r.width > 200 && r.height >= 24 && r.height <= 60) {
+        const key = Math.round(r.y) + ':' + Math.round(r.x);
+        if (!seen.has(key)) {
+          seen.add(key);
+          out.push({x: r.x, y: r.y, w: r.width, h: r.height});
+        }
+        break;
+      }
+    }
+  }
+  return out;
+}"""
+
 # Find an element by its EXACT text, but only one that is actually on screen.
 # TradingView keeps detached duplicates of many nodes, and Playwright's .first
 # resolves to them - which is why text locators and [data-name] .first clicks time
