@@ -73,6 +73,12 @@ set "ANTHROPIC_API_KEY="
 echo. >> "%LOG%"
 echo ========== %DATE% %TIME%  agent=%AGENT% ========== >> "%LOG%"
 
+REM PROOF OF WORK, part 1: stamp a marker NOW, so afterwards we can tell whether
+REM the report was written by THIS run or is left over from a previous one.
+set "REPORT=%PROJ%\tasks\logs\agent_%AGENT%_report.md"
+set "RUNMARK=%PROJ%\tasks\logs\.agent_%AGENT%_runmark"
+echo %DATE% %TIME% %AGENT%> "%RUNMARK%"
+
 pushd "%AGENTCWD%"
 call claude -p "You are the '%AGENT%' agent for SmartEntry Pro. Your full brief is the file %DEF% - READ IT FIRST and follow it exactly, including everything it forbids. Work on the repository at %PROJ%. HARD RULES for this run, which override anything in the brief that sounds permissive: do NOT edit, create or delete any source file; do NOT run git commit, git push, git reset or git checkout; do NOT install, register or modify any scheduled task; do NOT place, size or close a trade. You are producing a REPORT, not a change. Write your findings to %PROJ%\tasks\logs\agent_%AGENT%_report.md, overwriting it, with the date on the first line. If you find something worth changing, describe it there with the file, the exact change and the evidence - do not apply it. Be specific and short; every claim must name the file or command you verified it from." --dangerously-skip-permissions --output-format text --append-system-prompt "%NONINTERACTIVE%" --add-dir "%PROJ%" <nul > "%RUNOUT%" 2>&1
 set CLAUDE_RC=%ERRORLEVEL%
@@ -96,5 +102,45 @@ if "%PARK_RC%"=="0" (
 )
 
 del "%RUNOUT%" 2>nul
-echo [%DATE% %TIME%] %AGENT%: finished rc=%CLAUDE_RC% >> "%LOG%"
+
+REM ============================================================================
+REM  PROOF OF WORK, part 2 -- THE EXIT CODE OF `claude -p` IS NOT EVIDENCE THAT
+REM  AN AGENT RAN. It is 0 whenever the CLI started and stopped cleanly, which
+REM  it does when the agent writes no report, refuses the task, or prints an
+REM  error as prose. Until 2026-09-13 nothing here looked at the report file at
+REM  all -- it was named in the prompt on line 77 and never inspected -- so six
+REM  agents across two boxes reported result=0 into a green status table while
+REM  it was unknown whether any of them had written a single line. That is this
+REM  repo's oldest failure shape: a check that reports success while checking
+REM  nothing. Check the ARTEFACT, not the return code. tester.md states exactly
+REM  this rule, and the runner that launches tester was not obeying it.
+REM
+REM  Freshness is decided against a marker FILE, not a parsed date string:
+REM  %DATE% is locale-dependent on Windows, and a parse that quietly failed
+REM  would turn this check into the very thing it exists to catch.
+REM
+REM  Flow uses labels, not `endlocal ^& exit` inside an if-block: within
+REM  parentheses the caret escapes the ampersand into a literal character and
+REM  endlocal swallows the exit. Labels have no such trap.
+REM
+REM  ASCII ONLY IN THIS FILE -- per the agent-lock incident, UTF-8 in a comment
+REM  here is read as OEM by cmd.exe and stops the WHOLE script parsing.
+REM ============================================================================
+set "PROOF=UNKNOWN"
+for /f "delims=" %%T in ('powershell -NoProfile -ExecutionPolicy Bypass -Command "$r='%REPORT%'; $m='%RUNMARK%'; if(-not (Test-Path $r)){'MISSING'} elseif((Get-Item $r).Length -eq 0){'EMPTY'} elseif(-not (Test-Path $m)){'NOMARK'} elseif((Get-Item $r).LastWriteTimeUtc -le (Get-Item $m).LastWriteTimeUtc){'STALE'} else {'FRESH'}"') do set "PROOF=%%T"
+
+echo [%DATE% %TIME%] %AGENT%: finished rc=%CLAUDE_RC% report=%PROOF% >> "%LOG%"
+
+REM A real failure keeps its own exit code -- never mask it with ours.
+if not "%CLAUDE_RC%"=="0" goto :agent_rc_failed
+if not "%PROOF%"=="FRESH" goto :agent_no_report
+endlocal & exit /b 0
+
+:agent_rc_failed
 endlocal & exit /b %CLAUDE_RC%
+
+:agent_no_report
+echo [%DATE% %TIME%] %AGENT%: NO REPORT FROM THIS RUN ^(%PROOF%^) -- claude exited 0 but wrote nothing.>> "%LOG%"
+echo [%DATE% %TIME%] %AGENT%: expected %REPORT%>> "%LOG%"
+endlocal & exit /b 3
+
