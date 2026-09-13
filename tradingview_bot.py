@@ -1074,12 +1074,28 @@ def add_saved_script_to_chart(page):
     page.keyboard.type(SAVED_SCRIPT_NAME, delay=60)
     page.wait_for_timeout(3500)
 
-    rows = page.evaluate(JS_VISIBLE_SCRIPT_ROWS, SAVED_SCRIPT_NAME)
+    found = page.evaluate(JS_VISIBLE_SCRIPT_ROWS, SAVED_SCRIPT_NAME)
+    rows, total = found["rows"], found["total"]
+
+    # PROVE THE SEARCH ACTUALLY FILTERED, rather than assuming it.
+    #
+    # "exactly one row matches the title" is true in the UNFILTERED list too, because
+    # only one saved script carries this name - so on its own that check would pass
+    # while the full virtualised list was still on screen, and the stale-coordinate bug
+    # this whole change exists to kill would be reachable again. If the keystrokes went
+    # somewhere other than the search field, the row COUNT is what gives it away: the
+    # unfiltered My-scripts list is ~30 rows on this account.
+    if total > MAX_ROWS_AFTER_SEARCH:
+        print(f"[TV] indicators search did not filter the list ({total} rows still shown) - "
+              f"the keystrokes did not reach the search box; refusing to click")
+        page.keyboard.press("Escape")
+        return False
+
     # Exactly one, or refuse. Clicking into an ambiguous list is the original bug, and a
     # wrong row silently edits the user's layout - which is worse than not drawing.
     if len(rows) != 1:
-        print(f"[TV] indicators search for {SAVED_SCRIPT_NAME!r} matched {len(rows)} row(s), "
-              f"expected exactly 1 - refusing to click")
+        print(f"[TV] indicators search for {SAVED_SCRIPT_NAME!r} matched {len(rows)} row(s) "
+              f"of {total} shown, expected exactly 1 - refusing to click")
         page.keyboard.press("Escape")
         return False
     row = rows[0]
