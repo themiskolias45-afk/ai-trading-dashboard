@@ -1062,7 +1062,7 @@ def add_saved_script_to_chart(page):
     page.keyboard.type(SAVED_SCRIPT_NAME, delay=60)
     page.wait_for_timeout(3500)
 
-    rows = page.evaluate(JS_VISIBLE_SCRIPT_ROWS)
+    rows = page.evaluate(JS_VISIBLE_SCRIPT_ROWS, SAVED_SCRIPT_NAME)
     # Exactly one, or refuse. Clicking into an ambiguous list is the original bug, and a
     # wrong row silently edits the user's layout - which is worse than not drawing.
     if len(rows) != 1:
