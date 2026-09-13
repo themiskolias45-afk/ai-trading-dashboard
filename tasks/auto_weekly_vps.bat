@@ -14,10 +14,28 @@ REM folder with a trailing backslash, so %~dp0.. is the repo root on BOTH boxes
 REM and resolves to the identical path on the VPS.
 cd /d "%~dp0.."
 if not exist tasks\logs mkdir tasks\logs
+
+REM PROJ is USED below (calibration_officer on line ~41, BRIEF on line ~84) but was
+REM never ASSIGNED in this file - the one sibling that forgot. An unset %PROJ% expands
+REM to nothing, so "%PROJ%\tasks\calibration_officer.cjs" became "\tasks\..." which node
+REM resolves against the current drive: measured 2026-09-13 on the VPS as
+REM "Error: Cannot find module 'C:\tasks\calibration_officer.cjs'" - the calibration
+REM replay had therefore never run in this job. Same line as every other script here.
+for %%I in ("%~dp0..") do set "PROJ=%%~fI"
+
 if exist keys.env (
   for /f "usebackq tokens=1,* delims==" %%a in ("keys.env") do set "%%a=%%b"
 )
-if exist server\apikey.txt set /p ANTHROPIC_API_KEY=<server\apikey.txt
+
+REM ANTHROPIC_API_KEY is CLEARED, not set - matching auto_daily_vps.bat, morning_agent_vps.bat,
+REM auto_daily.bat, auto_weekly.bat, morning_agent.bat and run_agent.bat, every one of which
+REM already clears it. This file was the ONLY script still loading it from server\apikey.txt,
+REM missed when the fleet moved off the API rail. With the key set the CLI ignores the
+REM claude.ai subscription entirely and bills pay-as-you-go credit; auto_daily_vps.bat records
+REM that credit running out on 2026-08-03. It recurred here on 2026-09-13: this job died on
+REM "Credit balance is too low" while the Max subscription on the same box was healthy and
+REM answered `claude -p` with exit 0 the moment the key was cleared.
+set "ANTHROPIC_API_KEY="
 
 REM Locale-independent date — see the note in tasks\auto_weekly.bat.
 for /f %%D in ('powershell -NoProfile -Command "Get-Date -Format yyyyMMdd"') do set "TODAY=%%D"
