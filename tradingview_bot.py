@@ -1041,14 +1041,38 @@ def add_saved_script_to_chart(page):
     make_focus_safe(page)
     page.keyboard.press("/")
     page.wait_for_timeout(3500)
-    for label in ("My scripts", SAVED_SCRIPT_NAME):
-        box = page.evaluate(JS_VISIBLE_TEXT_BOX, label)
-        if not box:
-            print(f"[TV] indicators dialog: no visible row for {label!r}")
-            page.keyboard.press("Escape")
-            return False
-        page.mouse.click(box["x"] + box["w"] / 2, box["y"] + box["h"] / 2)
-        page.wait_for_timeout(2500)
+
+    # SEARCH FIRST, then click. Do NOT measure a row in the full list.
+    #
+    # THE LIST IS VIRTUALISED, and that is why every add here failed for days while
+    # reporting "added". JS_VISIBLE_TEXT_BOX measures the row, the list re-renders
+    # between that measurement and the mouse event, and the click lands on WHATEVER
+    # ROW NOW OCCUPIES THOSE PIXELS.
+    #
+    # Measured 2026-09-13, and this is the proof rather than a theory: clicking the
+    # measured coordinates for 'JARVIS Daily Plan' added **Fixed range volume profile**
+    # to the layout - a different entry entirely. The dialog closed either way, which is
+    # exactly why this looked like a successful add followed by a mysteriously empty
+    # chart. Then plan_study_is_current correctly reported [] and the run printed
+    # "REPLACE FAILED: added, but the chart still shows []".
+    #
+    # Typing into the search box narrows the list to ONE row, so there is no second row
+    # for a stale coordinate to hit. The same sequence added the correct study first try.
+    # The dialog focuses its search field on open, so the keystrokes land there.
+    page.keyboard.type(SAVED_SCRIPT_NAME, delay=60)
+    page.wait_for_timeout(3500)
+
+    rows = page.evaluate(JS_VISIBLE_SCRIPT_ROWS)
+    # Exactly one, or refuse. Clicking into an ambiguous list is the original bug, and a
+    # wrong row silently edits the user's layout - which is worse than not drawing.
+    if len(rows) != 1:
+        print(f"[TV] indicators search for {SAVED_SCRIPT_NAME!r} matched {len(rows)} row(s), "
+              f"expected exactly 1 - refusing to click")
+        page.keyboard.press("Escape")
+        return False
+    row = rows[0]
+    page.mouse.click(row["x"] + 60, row["y"] + row["h"] / 2)
+    page.wait_for_timeout(4000)
     page.keyboard.press("Escape")
     page.wait_for_timeout(1500)
     # Persist, or the study is lost the moment the chart navigates.
