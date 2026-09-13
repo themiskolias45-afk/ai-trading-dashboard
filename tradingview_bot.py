@@ -1038,7 +1038,19 @@ def add_saved_script_to_chart(page):
     button: that button has an invisible duplicate in the DOM and Playwright's
     .first resolves to it, so every click times out on an element that is there.
     """
-    make_focus_safe(page)
+    # THE RETURN VALUE IS CHECKED, and it has to be now that this function TYPES.
+    #
+    # This call discarded its result for as long as the body only ever pressed "/" and
+    # clicked - a stray "/" is harmless. It is not harmless any more: the search step
+    # below types SAVED_SCRIPT_NAME, and make_focus_safe returns False when it cannot
+    # get focus out of the Pine editor after four blur attempts. Typing 17 characters
+    # into the Monaco editor is exactly the source-corruption path this function's own
+    # docstring documents from 2026-08-24, and it would be written straight into the
+    # user's bound script. The other three call sites that press keys (:3372, :3388,
+    # :3404) have always checked it; this one now matches them.
+    if not make_focus_safe(page):
+        print("[TV] add script: focus will not leave the editor - refusing to type")
+        return False
     page.keyboard.press("/")
     page.wait_for_timeout(3500)
 
