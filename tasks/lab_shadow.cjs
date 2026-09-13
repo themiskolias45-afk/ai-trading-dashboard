@@ -62,10 +62,47 @@ function readJsonl(file) {
 }
 
 // Atomic, because this runs on a schedule while a dashboard may be reading it.
+//
+// THE RENAME RETRIES, because on Windows "atomic" is not "always permitted". rename
+// over an EXISTING destination fails with EPERM while anything holds that destination
+// open - and something routinely does: the node server serves this very file to the
+// dashboard, and Defender scans it in the instant after the write. Measured on the VPS
+// 2026-09-13T16:59:51Z:
+//   EPERM: operation not permitted, rename 'dashboard\lab-shadow.json.tmp' ->
+//   'dashboard\lab-shadow.json'   at writeJsonAtomic (tasks/lab_shadow.cjs:68)
+// That killed the whole run (FATAL) and left the .tmp orphaned, and the folder was
+// provably writable seconds later - it was contention, never a permission fault.
+//
+// The retry is BOUNDED so it cannot hide a real one: 5 attempts over ~500ms, then the
+// original error is rethrown exactly as before. A genuine EPERM still fails loudly.
+const RENAME_ATTEMPTS = 5;
+const RENAME_BACKOFF_MS = 100;
+
+function renameWithRetry(tmp, file) {
+  let lastErr = null;
+  for (let attempt = 1; attempt <= RENAME_ATTEMPTS; attempt++) {
+    try {
+      fs.renameSync(tmp, file);
+      return;
+    } catch (err) {
+      // Only contention is worth retrying. Anything else (ENOENT, ENOSPC) is a real
+      // fault and retrying it would just delay the report.
+      if (err.code !== 'EPERM' && err.code !== 'EACCES' && err.code !== 'EBUSY') throw err;
+      lastErr = err;
+      if (attempt < RENAME_ATTEMPTS) {
+        // Synchronous sleep: this file is sync throughout and runs as a scheduled
+        // one-shot, so there is no event loop to block and nothing waiting on it.
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, RENAME_BACKOFF_MS);
+      }
+    }
+  }
+  throw lastErr;
+}
+
 function writeJsonAtomic(file, payload) {
   const tmp = file + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(payload, null, 1), 'utf8');
-  fs.renameSync(tmp, file);
+  renameWithRetry(tmp, file);
 }
 
 // The revision predicate, named so the selftest can EXERCISE it. A detector that has
