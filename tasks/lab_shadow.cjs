@@ -496,6 +496,47 @@ function selftest() {
   ok('revision detector refuses to judge a non-number', rDiffers(null, 0.5) === false
      && rDiffers(0.5, undefined) === false);
 
+  // The rename retry, EXERCISED. The EPERM it exists for killed a real run on the VPS
+  // (2026-09-13), and a retry that has only ever been observed not running is not a
+  // retry that is known to work.
+  const rtDir = fs.mkdtempSync(path.join(os.tmpdir(), 'labshadow-rename-'));
+  try {
+    // Normal path: a plain rename still succeeds and still replaces the destination.
+    const src = path.join(rtDir, 'a.tmp'), dst = path.join(rtDir, 'a.json');
+    fs.writeFileSync(dst, 'old', 'utf8');
+    fs.writeFileSync(src, 'new', 'utf8');
+    renameWithRetry(src, dst);
+    ok('rename retry: normal rename still replaces the destination',
+       fs.readFileSync(dst, 'utf8') === 'new' && !fs.existsSync(src));
+
+    // A non-contention fault must NOT be retried away - it throws, and it throws the
+    // real code so the report still names the actual fault.
+    let code = null;
+    try { renameWithRetry(path.join(rtDir, 'missing.tmp'), dst); }
+    catch (err) { code = err.code; }
+    ok('rename retry: a non-contention error rethrows unchanged', code === 'ENOENT', String(code));
+
+    // Contention IS retried: a stub that fails EPERM twice then succeeds must come back
+    // clean, and must have been called more than once.
+    let calls = 0;
+    const realRename = fs.renameSync;
+    fs.renameSync = function (a, b) {
+      calls++;
+      if (calls < 3) { const e = new Error('stub EPERM'); e.code = 'EPERM'; throw e; }
+      return realRename.call(fs, a, b);
+    };
+    let retried = false;
+    try {
+      const s2 = path.join(rtDir, 'b.tmp'), d2 = path.join(rtDir, 'b.json');
+      fs.writeFileSync(s2, 'ok', 'utf8');
+      renameWithRetry(s2, d2);
+      retried = calls === 3 && fs.readFileSync(d2, 'utf8') === 'ok';
+    } finally { fs.renameSync = realRename; }
+    ok('rename retry: EPERM is retried and then succeeds', retried, 'calls=' + calls);
+  } finally {
+    fs.rmSync(rtDir, { recursive: true, force: true });
+  }
+
   // This file must not be able to reach an order path or the live settings.
   //
   // Scoped to the OPERATIONAL half - everything above this selftest - because the
