@@ -225,3 +225,30 @@ set RECENT=0
 if not exist "tasks\logs\.restart_%~1" exit /b 0
 for /f "usebackq delims=" %%R in (`powershell -NoProfile -Command "$f='tasks\logs\.restart_%~1'; $age=((Get-Date)-(Get-Item $f).LastWriteTime).TotalSeconds; if ($age -lt %BRIDGE_RESTART_COOLDOWN_SEC%) { '1' } else { '0' }"`) do set RECENT=%%R
 exit /b 0
+
+:start_server_unless_port_held
+REM THE TASKKILL ABOVE MATCHES BY WINDOW TITLE AND CANNOT SEE EVERY SERVER.
+REM tasks\ensure_running.ps1:190 starts the server with Start-Process cmd and sets NO
+REM window title, so `windowtitle eq SmartEntry Server` matches nothing and the running
+REM server survives the kill. MEASURED 2026-09-13: exactly one `node index.js` alive
+REM (PID 6160, started 13:03:33 by ensure_running) and ZERO windows carrying that title.
+REM Spawning anyway is what writes EADDRINUSE into tasks\logs\server_crash.txt - 49 of
+REM them, 3 on 2026-09-13 alone (07:57:37, 09:06:44, 12:08:30Z).
+REM
+REM THE PORT IS THE AUTHORITY, NOT THE WINDOW TITLE. If 3001 is still LISTENING after the
+REM taskkill then the old process is alive, and a second node can only lose the race and
+REM die - so say so in the log instead of spawning it. That turns a silent no-op into a
+REM visible line, which is the whole point: a restart that quietly did nothing looks
+REM exactly like the code change not working.
+REM
+REM DELIBERATELY NOT THE OTHER FIX. Giving ensure_running's window the matching title
+REM would let the watchdog kill the server properly - and would also let a SINGLE false
+REM negative on the 5s curl above kill a HEALTHY server, trading a harmless duplicate
+REM death for real downtime on the box that trades. This direction never kills anything.
+netstat -ano | findstr /r /c:":3001 .*LISTENING" >nul 2>&1
+if not errorlevel 1 (
+    echo [!date! !time!] RESTART ABORTED - port 3001 still LISTENING after the taskkill, so the old server is alive and was not killed. Not spawning a duplicate. >> tasks\logs\watchdog_log.txt
+    exit /b 0
+)
+start "SmartEntry Server" /min cmd /c "cd server && node index.js >> tasks\logs\server_log.txt 2>&1"
+exit /b 0

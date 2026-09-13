@@ -545,6 +545,11 @@ app.post("/api/logout", (_, res) => {
 // real Anthropic/Brave API credits, and had no auth at all before this.
 const API_NO_LOGIN_REQUIRED = new Set([
   "/api/login", "/api/logout",
+  // The marketing page's lead capture. POST-only, writes one email + one timestamp to
+  // tasks/waitlist.jsonl, rate-limited per IP, and has no GET - so it can never be read
+  // back through the API. It must be unauthenticated because the people it exists for
+  // are strangers who have no account. See the route for the full reasoning.
+  "/api/waitlist",
   "/api/signals", "/api/newsfilter", "/api/features",
   "/api/mt5/positions", "/api/risk-status",
   // The LOOPBACK check inside the handler is the real gate here, not a session. This stops
@@ -10502,11 +10507,23 @@ app.get("/api/backtest", async (req, res) => {
       // The empty catch below is also why a real failure showed nothing rather than
       // saying so: it now records WHY, because a silent absence and a refusal look
       // identical to the reader and only one of them needs a person.
+      // A MATCH HERE IS TERMINAL, NOT A FALL-THROUGH. By the time this runs,
+      // wrapAnthropicWithCliFallback has already exhausted BOTH rails, so there is
+      // nothing left to retry: a false positive discards the text permanently and the
+      // result is cached and served for 12h. Hence the length gate - see
+      // CLI_AUTH_NOTICE_MAX_CHARS. Measured 2026-09-13 over 78 real persisted model
+      // strings (60 tv_alerts + 18 journal commentaries): shortest was 660 chars, while
+      // every real auth payload is 33-144. The gate cannot drop a real verdict.
       const verdictText = msg.content?.[0]?.text ?? null;
-      const looksLikeAuthError = verdictText && CLI_AUTH_ERROR_RE.test(verdictText);
+      const looksLikeAuthError = verdictText
+        && verdictText.length < CLI_AUTH_NOTICE_MAX_CHARS
+        && CLI_AUTH_ERROR_RE.test(verdictText);
       out.claudeVerdict      = looksLikeAuthError ? null : verdictText;
+      // Rail-agnostic wording on purpose. This text can arrive from EITHER leg, so
+      // asserting "the CLI is not signed in" states a cause that may be false: a
+      // subscription/billing state on the API leg produced exactly this on 2026-09-13.
       out.claudeVerdictError = looksLikeAuthError
-        ? "the Claude CLI is not signed in on this box — run `claude` interactively and sign in. The backtest NUMBERS above are unaffected; only the commentary is missing."
+        ? "the Claude commentary rail reported an auth or billing state (not signed in, subscription access disabled, or credit exhausted) — check `claude` on this box and the API key's balance. The backtest NUMBERS above are unaffected; only the commentary is missing."
         : null;
     } catch (e) {
       out.claudeVerdict      = null;
@@ -10583,7 +10600,38 @@ const AI_FILTER_CLI_ENABLED = process.env.AI_FILTER_CLI_FALLBACK !== "0";
 // nobody has ever observed what a signed-out `claude -p` exits with. If it prints the
 // auth text and exits 0, the exit-code test alone catches nothing. Two independent
 // tests, so the guard does not rest on an unmeasured fact.
-const CLI_AUTH_ERROR_RE = /not logged in|please run \/login|unauthori[sz]ed|authentication/i;
+// MEASURED 2026-09-13: this list had a hole, and only the exit-code test covered it.
+// An account awaiting renewal prints "Your organization has disabled Claude subscription
+// access for Claude Code · Use an Anthropic API key instead, or ask your admin to enable
+// access" — which matches NONE of the four phrases below. Not "unauthorized", and not
+// "authentication" either; and note it says to USE an API key rather than that one is
+// invalid, so even an "invalid api key" phrase would have missed it. The same morning the
+// API rail was failing with the sibling billing wording "Your credit balance is too low".
+// Six jobs hit it between 09:00 and 11:00. Nothing reached a ledger, because `code !== 0`
+// returned first — but that is exactly the unmeasured fact this second test exists to
+// cover, so the hole is real even though it did not fire. Same three phrases added to
+// AUTH_MARKERS in claude_agent.py (86e2653), which had the identical gap.
+const CLI_AUTH_ERROR_RE = /not logged in|please run \/login|unauthori[sz]ed|authentication|subscription access|credit balance|ask your admin/i;
+
+// SHORT-BODY DISCIPLINE, and it is the phrase list's missing floor rather than a nicety.
+// Both siblings that already carry these phrases gate them by length and say why:
+// claude_agent.py:108 (LIMIT_NOTICE_MAX_CHARS = 400, "an agent that finished its work and
+// happened to discuss authentication in prose has not failed") and
+// tasks/weekly_report_index.cjs:222. This file applied them to UNBOUNDED text at both
+// sites, which is the one way a widened list can cost a real answer.
+//
+// MEASURED 2026-09-13, which is what sets the number: across 78 persisted model strings
+// (60 tasks/logs/tv_alerts.jsonl + 18 server/journal.json commentaries) the SHORTEST was
+// 660 chars and the median 1858, while all three real auth payloads are 33, 59 and 144 -
+// the 144 being the live renewal notice, confirmed by four
+// "[claude-cli] exited 1 - discarding 144 char(s)" lines in server_log.txt. 400 sits in
+// an empty band between the two populations, so it keeps every observed true positive and
+// makes every observed real answer structurally impossible to discard.
+//
+// This matters most for the /api/backtest reader, where a match is terminal and cached
+// for 12h, and for buildSystemContext() injecting jarvis_memory.json into every /api/chat
+// prompt - a memory ABOUT a billing outage would otherwise put the phrase in every turn.
+const CLI_AUTH_NOTICE_MAX_CHARS = 400;
 
 // THE FAILURE REASON IS ON STDERR, AND NOTHING WAS READING IT.
 //
@@ -10836,7 +10884,11 @@ function runClaudeCli(prompt, timeoutMs) {
       // thing standing between "Not logged in - Please run /login" and a journal row.
       // Rejecting costs one API call (the caller falls through to the API rail, which
       // still answers) and can never cost an answer or block a trade.
-      if (CLI_AUTH_ERROR_RE.test(text)) {
+      // Length-gated for the reason given at CLI_AUTH_NOTICE_MAX_CHARS: a real answer is
+      // long (shortest observed 660 chars), an auth notice is not (longest observed 144).
+      // Without the floor, a commentary that merely DISCUSSES an account credit balance -
+      // ordinary subject matter for this system - would be thrown away here.
+      if (text.length < CLI_AUTH_NOTICE_MAX_CHARS && CLI_AUTH_ERROR_RE.test(text)) {
         console.error(`[claude-cli] auth error text on stdout at exit 0 - discarding, falling through to the API rail | stderr: ${stderrTail()}`);
         return finish(null);
       }
@@ -11302,6 +11354,89 @@ app.get("/architecture", (_, res) => res.sendFile(path.join(__dirname, "..", "da
 app.use("/screenshots", express.static(path.join(__dirname, "..", "dashboard", "screenshots")));
 app.use(express.static(path.join(__dirname, "..", "commercial")));
 app.get("/", (_, res) => res.sendFile(path.join(__dirname, "..", "commercial", "index.html")));
+
+// ── WAITLIST CAPTURE ────────────────────────────────────────────────────────────
+//
+// WHY THIS EXISTS. The marketing page's whole purpose is to find clients, and until
+// 2026-09-11 its form did this:
+//
+//     const email = document.getElementById('waitlist-email').value;
+//     // TODO: connect to backend / Mailchimp / ConvertKit
+//     msg.textContent = "✓ You're on the list. We'll be in touch soon.";
+//
+// The address was read into a variable and DISCARDED, while the visitor was told it had
+// worked. Every signup since 2026-08-19 is gone and each of those people was told
+// something untrue. A page whose only job is lead capture, capturing nothing.
+//
+// THIS IS THE ONLY UNAUTHENTICATED WRITE ENDPOINT ON THIS SERVER, so it is built like
+// one rather than like an internal route:
+//   - a fixed per-IP rate limit, in memory, so a script cannot fill the disk
+//   - a hard cap on stored records and on field length
+//   - RFC-ish length and shape validation, and the address is stored as data via
+//     JSON.stringify - never interpolated into anything
+//   - it stores the EMAIL and a TIMESTAMP. Not the IP, not the user agent, not a
+//     fingerprint. The IP is used for rate limiting in memory only and never written,
+//     because a marketing form has no business building a visitor log.
+//   - it answers the same {ok:true} whether the address is new or a duplicate, so the
+//     endpoint cannot be used to test whether someone is on the list
+//   - it cannot read anything. There is no GET. The list is read off disk by its owner.
+const WAITLIST_FILE = path.join(__dirname, "..", "tasks", "waitlist.jsonl");
+const WAITLIST_MAX_RECORDS = 50000;       // bounded disk, ~3 MB at this shape
+const WAITLIST_MAX_EMAIL_LEN = 254;       // RFC 5321 maximum
+const WAITLIST_WINDOW_MS = 60 * 60 * 1000;
+const WAITLIST_MAX_PER_WINDOW = 5;        // per IP per hour
+const waitlistHits = new Map();           // ip -> [timestamps]  (memory only, never written)
+
+app.post("/api/waitlist", (req, res) => {
+  try {
+    const ip = String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "?").split(",")[0].trim();
+    const now = Date.now();
+    const hits = (waitlistHits.get(ip) || []).filter(t => now - t < WAITLIST_WINDOW_MS);
+    if (hits.length >= WAITLIST_MAX_PER_WINDOW) {
+      return res.status(429).json({ ok: false, error: "Too many requests. Try again later." });
+    }
+    hits.push(now);
+    waitlistHits.set(ip, hits);
+    // Bound the map itself; an IP with no recent hits is forgotten.
+    if (waitlistHits.size > 10000) {
+      for (const [k, v] of waitlistHits) if (!v.some(t => now - t < WAITLIST_WINDOW_MS)) waitlistHits.delete(k);
+    }
+
+    const email = String((req.body && req.body.email) || "").trim().toLowerCase();
+    if (!email || email.length > WAITLIST_MAX_EMAIL_LEN || !/^[^\s@]+@[^\s@.]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ ok: false, error: "Please enter a valid email address." });
+    }
+
+    let existing = [];
+    try {
+      if (fs.existsSync(WAITLIST_FILE)) {
+        existing = fs.readFileSync(WAITLIST_FILE, "utf8").split("\n").filter(l => l.trim());
+      }
+    } catch (e) { /* unreadable is treated as empty; the append below still records it */ }
+
+    if (existing.length >= WAITLIST_MAX_RECORDS) {
+      console.error("[waitlist] FULL at " + existing.length + " records - signup NOT stored: " + email);
+      return res.status(507).json({ ok: false, error: "The waitlist is temporarily unavailable." });
+    }
+
+    // Duplicate: answer exactly as for a new signup. Saying "you are already on the list"
+    // would turn this into an oracle for whether a given address had signed up.
+    const already = existing.some(l => {
+      try { return JSON.parse(l).email === email; } catch (e) { return false; }
+    });
+    if (!already) {
+      fs.appendFileSync(WAITLIST_FILE,
+        JSON.stringify({ email, at: new Date().toISOString(), source: "commercial" }) + "\n");
+      console.log("[waitlist] +1 (" + (existing.length + 1) + " total)");
+    }
+    return res.json({ ok: true });
+  } catch (e) {
+    // A failure here must be LOUD in the log and honest to the visitor, never a silent
+    // green tick - that is the exact defect this route replaces.
+    console.error("[waitlist] FAILED to store signup:", e && e.message);
+    return res.status(500).json({ ok: false, error: "Could not save your email. Please try again." });
+  }
+});
 // Public. Reads only /api/signals, /api/strategy-settings and /api/evidence-board,
 // all of which already answer 200 unauthenticated. Deliberately NOT /api/risk-status,
 // which returns the MT5 login in its account config.
