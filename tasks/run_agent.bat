@@ -65,6 +65,58 @@ if not exist "%AGENTCWD%" mkdir "%AGENTCWD%"
 set "LOG=%PROJ%\tasks\logs\agent_%AGENT%.txt"
 set "RUNOUT=%PROJ%\tasks\logs\agent_%AGENT%_run_%RANDOM%%RANDOM%.tmp"
 
+REM --- ONE RUN PER AGENT AT A TIME -------------------------------------------
+REM
+REM ASCII ONLY IN THIS FILE. The first attempt at this block carried UTF-8 box
+REM drawing characters in its comment banner. cmd.exe reads a .bat as OEM, the
+REM multibyte sequences became garbage, and the WHOLE SCRIPT stopped parsing -
+REM "The syntax of the command is incorrect", exit 255, for every agent, even
+REM with no arguments. Measured 2026-09-13. The working file is 0 non-ASCII
+REM bytes; keep it that way. Same family as the Get-Content/Set-Content rule.
+REM
+REM WHY A LOCK. Two things run agents and neither knew about the other: this
+REM script, fired by the agent's own scheduled task, and tasks\drain_agents.bat,
+REM which RESUMES a brief parked on a subscription limit.
+REM
+REM Measured 2026-09-13: at 13:42 code-reviewer parked - "the next drain resumes
+REM it". At 17:54:10 the scheduled task AND the drain both fired as missed-run
+REM catch-ups (68 of 70 tasks here are StartWhenAvailable, so a sleeping laptop
+REM wakes to a herd - five tasks started in that one second). Both ran
+REM code-reviewer. One died after 35s with STATUS_CONTROL_C_EXIT (0xC000013A)
+REM having written NOTHING, which reads as "the agent is broken" rather than "it
+REM was run twice". Run alone, the same command finishes rc=0 with a full report.
+REM
+REM mkdir is ATOMIC on Windows - it succeeds for exactly one caller - which is
+REM why the lock is a directory. A test-then-create on a file has a race between
+REM the test and the create, which is the bug, not a fix for it.
+REM
+REM GOTO, not nested if-blocks: "endlocal & exit /b" inside a block is an
+REM escaping trap, and flat labels have none of that surface.
+set "AGENTLOCK=%PROJ%\tasks\logs\.agentlock_%AGENT%"
+
+if not exist "%AGENTLOCK%" goto :take_agent_lock
+
+REM A lock older than the task's own ExecutionTimeLimit (PT1H) belongs to a run
+REM that cannot still be alive - a killed process never reaches its cleanup. 90
+REM minutes, not 60, so a merely slow run is never robbed of its lock mid-flight.
+for /f %%S in ('powershell -NoProfile -Command "$d=Get-Item -LiteralPath '%AGENTLOCK%' -ErrorAction SilentlyContinue; if($d -and ((Get-Date)-$d.CreationTime).TotalMinutes -gt 90){'STALE'}else{'FRESH'}"') do set "LOCKAGE=%%S"
+if not "%LOCKAGE%"=="STALE" goto :take_agent_lock
+echo [%DATE% %TIME%] %AGENT%: taking over a stale lock, older than 90 min >> "%LOG%"
+rmdir "%AGENTLOCK%" 2>nul
+
+:take_agent_lock
+mkdir "%AGENTLOCK%" 2>nul
+if not errorlevel 1 goto :agent_lock_held
+
+REM EXIT 0, DELIBERATELY. The other run is doing the work, so this is not a
+REM failure and must not paint the health board red - a false RED trains the
+REM reader to ignore the board, which is how a real one gets missed.
+echo. >> "%LOG%"
+echo [%DATE% %TIME%] %AGENT%: another run holds the lock - skipping, not a failure >> "%LOG%"
+endlocal & exit /b 0
+
+:agent_lock_held
+
 set NONINTERACTIVE=You are a non-interactive subprocess in an automated pipeline. There is no human reading your output and no one to answer a question. Never greet, never introduce yourself, never ask for confirmation. Do the work described, write your findings, then stop.
 
 REM Subscription, not API credit.
@@ -74,7 +126,9 @@ echo. >> "%LOG%"
 echo ========== %DATE% %TIME%  agent=%AGENT% ========== >> "%LOG%"
 
 REM PROOF OF WORK, part 1: stamp a marker NOW, so afterwards we can tell whether
-REM the report was written by THIS run or is left over from a previous one.
+REM the report was written by THIS run or is left over from a previous one. This
+REM sits after :agent_lock_held on purpose - a run that skipped on the lock exits
+REM before here, so it never stamps a marker and can never report a false STALE.
 set "REPORT=%PROJ%\tasks\logs\agent_%AGENT%_report.md"
 set "RUNMARK=%PROJ%\tasks\logs\.agent_%AGENT%_runmark"
 echo %DATE% %TIME% %AGENT%> "%RUNMARK%"
@@ -98,33 +152,37 @@ REM so the scheduler does not flag a failure for something that will be resumed.
 if "%PARK_RC%"=="0" (
   echo [%DATE% %TIME%] %AGENT%: parked on a subscription limit, drain will resume >> "%LOG%"
   del "%RUNOUT%" 2>nul
+  rmdir "%AGENTLOCK%" 2>nul
   endlocal & exit /b 0
 )
 
 del "%RUNOUT%" 2>nul
+REM Release the lock on EVERY exit. A parked run is finished with the agent - its
+REM brief is safely on the queue - so holding the lock would block the very drain
+REM meant to resume it, turning a pause into a stall. This line sits ABOVE the
+REM branch below deliberately: all three exits there pass through it, so adding a
+REM new exit code can never leak the lock.
+rmdir "%AGENTLOCK%" 2>nul
 
 REM ============================================================================
-REM  PROOF OF WORK, part 2 -- THE EXIT CODE OF `claude -p` IS NOT EVIDENCE THAT
-REM  AN AGENT RAN. It is 0 whenever the CLI started and stopped cleanly, which
-REM  it does when the agent writes no report, refuses the task, or prints an
-REM  error as prose. Until 2026-09-13 nothing here looked at the report file at
-REM  all -- it was named in the prompt on line 77 and never inspected -- so six
-REM  agents across two boxes reported result=0 into a green status table while
-REM  it was unknown whether any of them had written a single line. That is this
-REM  repo's oldest failure shape: a check that reports success while checking
-REM  nothing. Check the ARTEFACT, not the return code. tester.md states exactly
-REM  this rule, and the runner that launches tester was not obeying it.
+REM  PROOF OF WORK -- THE EXIT CODE OF `claude -p` IS NOT EVIDENCE AN AGENT RAN.
+REM  It is 0 whenever the CLI started and stopped cleanly, which it does when the
+REM  agent writes no report, refuses the task, or prints an error as prose. Until
+REM  2026-09-13 nothing here looked at the report file at all -- it was named in
+REM  the prompt and never inspected -- so six agents across two boxes reported
+REM  result=0 into a green fleet table while it was unknown whether any of them
+REM  had written a single line. That is this repo's oldest failure shape: a check
+REM  that reports success while checking nothing. Check the ARTEFACT, not the
+REM  return code; tester.md states exactly that rule and its own runner was not
+REM  obeying it. The lock block above found the same defect from the other side --
+REM  a doubled run died having written NOTHING and still looked like an agent
+REM  fault rather than a collision.
 REM
 REM  Freshness is decided against a marker FILE, not a parsed date string:
-REM  %DATE% is locale-dependent on Windows, and a parse that quietly failed
-REM  would turn this check into the very thing it exists to catch.
+REM  %DATE% is locale-dependent on Windows, and a parse that quietly failed would
+REM  turn this check into the very thing it exists to catch.
 REM
-REM  Flow uses labels, not `endlocal ^& exit` inside an if-block: within
-REM  parentheses the caret escapes the ampersand into a literal character and
-REM  endlocal swallows the exit. Labels have no such trap.
-REM
-REM  ASCII ONLY IN THIS FILE -- per the agent-lock incident, UTF-8 in a comment
-REM  here is read as OEM by cmd.exe and stops the WHOLE script parsing.
+REM  GOTO, not nested if-blocks -- same reason the lock block gives.
 REM ============================================================================
 set "PROOF=UNKNOWN"
 for /f "delims=" %%T in ('powershell -NoProfile -ExecutionPolicy Bypass -Command "$r='%REPORT%'; $m='%RUNMARK%'; if(-not (Test-Path $r)){'MISSING'} elseif((Get-Item $r).Length -eq 0){'EMPTY'} elseif(-not (Test-Path $m)){'NOMARK'} elseif((Get-Item $r).LastWriteTimeUtc -le (Get-Item $m).LastWriteTimeUtc){'STALE'} else {'FRESH'}"') do set "PROOF=%%T"
@@ -143,4 +201,3 @@ endlocal & exit /b %CLAUDE_RC%
 echo [%DATE% %TIME%] %AGENT%: NO REPORT FROM THIS RUN ^(%PROOF%^) -- claude exited 0 but wrote nothing.>> "%LOG%"
 echo [%DATE% %TIME%] %AGENT%: expected %REPORT%>> "%LOG%"
 endlocal & exit /b 3
-
