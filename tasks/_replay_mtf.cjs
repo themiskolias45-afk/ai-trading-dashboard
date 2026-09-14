@@ -681,7 +681,12 @@ const D1_SEC = 86400, H4_SEC = 14400, H1_SEC = 3600;
 function slice(bars, endIdx) {
   const from = Math.max(0, endIdx - WINDOW + 1);
   const w = bars.slice(from, endIdx + 1);
-  return { closes: w.map(b => b.c), highs: w.map(b => b.h), lows: w.map(b => b.l), volumes: w.map(b => b.v) };
+  return { closes: w.map(b => b.c), highs: w.map(b => b.h), lows: w.map(b => b.l), volumes: w.map(b => b.v),
+           // opens was built by loadBars and then discarded here. generateSignalMTF passes
+           // barSource.opens to each leg (server/index.js:3547/3559/3567), and SWING_PULLBACK_H4
+           // returns idle at :2488 unless it is an equal-length array — so that setup could never
+           // fire in any walk-forward. Purely additive: every existing reader takes named fields.
+           opens: w.map(b => b.o) };
 }
 
 // ── replay ───────────────────────────────────────────────────────────────────
