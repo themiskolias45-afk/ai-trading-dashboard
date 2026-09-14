@@ -125,6 +125,14 @@ set "ANTHROPIC_API_KEY="
 echo. >> "%LOG%"
 echo ========== %DATE% %TIME%  agent=%AGENT% ========== >> "%LOG%"
 
+REM PROOF OF WORK, part 1: stamp a marker NOW, so afterwards we can tell whether
+REM the report was written by THIS run or is left over from a previous one. This
+REM sits after :agent_lock_held on purpose - a run that skipped on the lock exits
+REM before here, so it never stamps a marker and can never report a false STALE.
+set "REPORT=%PROJ%\tasks\logs\agent_%AGENT%_report.md"
+set "RUNMARK=%PROJ%\tasks\logs\.agent_%AGENT%_runmark"
+echo %DATE% %TIME% %AGENT%> "%RUNMARK%"
+
 pushd "%AGENTCWD%"
 call claude -p "You are the '%AGENT%' agent for SmartEntry Pro. Your full brief is the file %DEF% - READ IT FIRST and follow it exactly, including everything it forbids. Work on the repository at %PROJ%. HARD RULES for this run, which override anything in the brief that sounds permissive: do NOT edit, create or delete any source file; do NOT run git commit, git push, git reset or git checkout; do NOT install, register or modify any scheduled task; do NOT place, size or close a trade. You are producing a REPORT, not a change. Write your findings to %PROJ%\tasks\logs\agent_%AGENT%_report.md, overwriting it, with the date on the first line. If you find something worth changing, describe it there with the file, the exact change and the evidence - do not apply it. Be specific and short; every claim must name the file or command you verified it from." --dangerously-skip-permissions --output-format text --append-system-prompt "%NONINTERACTIVE%" --add-dir "%PROJ%" <nul > "%RUNOUT%" 2>&1
 set CLAUDE_RC=%ERRORLEVEL%
@@ -149,9 +157,47 @@ if "%PARK_RC%"=="0" (
 )
 
 del "%RUNOUT%" 2>nul
-REM Release the lock on BOTH exits. A parked run is finished with the agent - its
+REM Release the lock on EVERY exit. A parked run is finished with the agent - its
 REM brief is safely on the queue - so holding the lock would block the very drain
-REM meant to resume it, turning a pause into a stall.
+REM meant to resume it, turning a pause into a stall. This line sits ABOVE the
+REM branch below deliberately: all three exits there pass through it, so adding a
+REM new exit code can never leak the lock.
 rmdir "%AGENTLOCK%" 2>nul
-echo [%DATE% %TIME%] %AGENT%: finished rc=%CLAUDE_RC% >> "%LOG%"
+
+REM ============================================================================
+REM  PROOF OF WORK -- THE EXIT CODE OF `claude -p` IS NOT EVIDENCE AN AGENT RAN.
+REM  It is 0 whenever the CLI started and stopped cleanly, which it does when the
+REM  agent writes no report, refuses the task, or prints an error as prose. Until
+REM  2026-09-13 nothing here looked at the report file at all -- it was named in
+REM  the prompt and never inspected -- so six agents across two boxes reported
+REM  result=0 into a green fleet table while it was unknown whether any of them
+REM  had written a single line. That is this repo's oldest failure shape: a check
+REM  that reports success while checking nothing. Check the ARTEFACT, not the
+REM  return code; tester.md states exactly that rule and its own runner was not
+REM  obeying it. The lock block above found the same defect from the other side --
+REM  a doubled run died having written NOTHING and still looked like an agent
+REM  fault rather than a collision.
+REM
+REM  Freshness is decided against a marker FILE, not a parsed date string:
+REM  %DATE% is locale-dependent on Windows, and a parse that quietly failed would
+REM  turn this check into the very thing it exists to catch.
+REM
+REM  GOTO, not nested if-blocks -- same reason the lock block gives.
+REM ============================================================================
+set "PROOF=UNKNOWN"
+for /f "delims=" %%T in ('powershell -NoProfile -ExecutionPolicy Bypass -Command "$r='%REPORT%'; $m='%RUNMARK%'; if(-not (Test-Path $r)){'MISSING'} elseif((Get-Item $r).Length -eq 0){'EMPTY'} elseif(-not (Test-Path $m)){'NOMARK'} elseif((Get-Item $r).LastWriteTimeUtc -le (Get-Item $m).LastWriteTimeUtc){'STALE'} else {'FRESH'}"') do set "PROOF=%%T"
+
+echo [%DATE% %TIME%] %AGENT%: finished rc=%CLAUDE_RC% report=%PROOF% >> "%LOG%"
+
+REM A real failure keeps its own exit code -- never mask it with ours.
+if not "%CLAUDE_RC%"=="0" goto :agent_rc_failed
+if not "%PROOF%"=="FRESH" goto :agent_no_report
+endlocal & exit /b 0
+
+:agent_rc_failed
 endlocal & exit /b %CLAUDE_RC%
+
+:agent_no_report
+echo [%DATE% %TIME%] %AGENT%: NO REPORT FROM THIS RUN ^(%PROOF%^) -- claude exited 0 but wrote nothing.>> "%LOG%"
+echo [%DATE% %TIME%] %AGENT%: expected %REPORT%>> "%LOG%"
+endlocal & exit /b 3
