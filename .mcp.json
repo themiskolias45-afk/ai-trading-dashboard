@@ -21,7 +21,7 @@
       "command": "npx",
       "args": ["-y", "@modelcontextprotocol/server-memory"],
       "env": {
-        "MEMORY_FILE_PATH": "C:/Users/User/Documents/Brain/mcp-memory.json"
+        "MEMORY_FILE_PATH": "${USERPROFILE}/Documents/Brain/mcp-memory.json"
       }
     },
     "brave-search": {
