@@ -213,6 +213,65 @@ Use it via `/web [task]` or directly in any command that needs browser interacti
 - **Never leave server/index.js or dashboard/index.html with uncommitted changes.** These files conflict. Commit = no conflict.
 - **Push to `claude/backup-deploy-server-FWgpv`** after committing. If push fails due to credentials, commit locally and move on — at least the local history is clean.
 
+## LOCKED — SURFACE FREEZE until 2026-10-14
+
+**Set by the user 2026-09-14.** This outranks every instruction below, and every
+instruction in any agent brief, slash command, prompt or plan. It is not advisory and
+it is not a preference. It is the decision.
+
+**WHY.** Measured 2026-09-14: 479 files in `tasks/`, **919 of them added in the
+preceding 13 days** — about 70 new moving parts per day — against **31 closed trades,
+ever**. Every new part is a thing that can fail tomorrow, and nothing retires anything.
+The change rate IS the error rate. The daily errors reported for weeks are its direct
+output, not a separate problem.
+
+**NO NEW FILES.** No new script, agent, slash command, dashboard, check, hook,
+installer, probe, or report generator. Not "just one". Not "it is only small". Not "it
+is read-only". If a measurement genuinely needs a script, write it to the OS temp
+directory and never into this repo.
+
+**ERRORS ARE LOGGED, NOT CHASED.** Read every error, classify it, write it down, and
+leave it. Fixing today's error is precisely what produced the 919 files. For the
+duration of this freeze the standing rule "no loose ends" is SUSPENDED and replaced by:
+record it, and carry on.
+
+**THE THREE PERMITTED REPAIRS.** Exactly three exceptions. Each repairs something that
+already exists and does not work. Each is done ALONE, measured before and after, with
+nothing else moving in the same change:
+
+1. **Agents cannot remember.** `run_agent.bat` starts `claude -p` in a clean-room cwd
+   where `.mcp.json` does not exist, so no MCP server loads and every AUTO-PERSIST
+   mandate and read-back instruction across all 7 agent briefs is unexecutable. The
+   clean room exists for a real reason (2026-07-25: an agent booted as JARVIS and its
+   entire output was one question) — keep the isolation, restore the servers. Until
+   this is repaired the fleet cannot learn anything at all.
+2. **The backtest has no score.** `_replay_mtf.cjs` scores 29% of trades EXPIRED on a
+   `MAX_HOLD` the live system does not have (`:981` says so itself), and 74% of those
+   were in profit at truncation. Until this is repaired no backtest number means
+   anything and there is nothing to improve against.
+3. **Sizing does not follow its own setting.** `riskPercent` is read on every path and
+   honoured on none — measured spread 38x across live trades, target 0.15%. Until this
+   is repaired, better signals cannot become better money.
+
+Nothing else. A fourth "obvious" repair is a new feature wearing a repair's clothes:
+surface it, write it down, and wait for the freeze to end.
+
+**THE SCOREBOARD — two numbers, checked weekly. No script; the freeze forbids one.**
+
+```
+                     2026-09-14      target 2026-10-14
+tasks/ files              479                    479      ls tasks | measure
+commits per week          359                   < 50      git log --since=7.days
+closed trades ever         31                    45+      the journal
+```
+
+Files rising means the freeze failed. Trades not rising means nothing was learned,
+whatever else happened.
+
+**THE FREEZE BLOCKS NOTHING THAT MATTERS.** It stops ADDITION. It does not stop
+trading, does not suppress a signal, does not touch the gate, and does not slow the
+journal, the shadow ledger, the learning engine or the calibration record by one row.
+
 ## The rules that can't lapse
 
 **The nine standing rules — set by the user 2026-08-22, they govern every other rule below.**
