@@ -89,9 +89,22 @@ const SCALAR_CONSTS = [
   "BUY_DIP_REQUIRE_MACD_BULLISH",
   "BUY_DIP_RSI_MAX",
   "MOMENTUM_REQUIRE_MACD_BULLISH",
-  "MOMENTUM_MACD_EXEMPT_TICKERS",
+  // MOMENTUM_MACD_EXEMPT_TICKERS was removed from server/index.js by b0bfb9e on
+  // 2026-09-03 ("the only NEW fleet divergence"). The engine is right; this list was
+  // stale, and the hard refusal above turned that into an 11-day outage of the whole
+  // daily harness. Audited 2026-09-14: this was the ONLY stale entry across
+  // _replay_engine.cjs, _replay_mtf.cjs and regime_forecast.cjs.
   "SELL_BOUNCE_REQUIRE_DOWNTREND",
   "TREND_FOLLOW_REQUIRE_MACD_BULLISH",
+  // Added 2026-09-14 by a REVERSE audit: the forward audit only finds list entries the
+  // engine no longer has (which produce the hard refusal). These are the other
+  // direction - consts generateSignal READS that the list never supplied, which produce
+  // "X is not defined" on every bar and a DEGRADED empty trade list. Found by walking
+  // the ALL_CAPS identifiers in the extracted blocks against the engine's top-level
+  // consts, then confirmed by running until the replay stopped degrading.
+  "MACD_BULLISH_MODE",
+  "SIZING_BOOST_MIN_CONFIDENCE",
+  "STRENGTH_LEVELS",
 ];
 
 let code = "";
