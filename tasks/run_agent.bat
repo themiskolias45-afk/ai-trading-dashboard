@@ -133,8 +133,21 @@ set "REPORT=%PROJ%\tasks\logs\agent_%AGENT%_report.md"
 set "RUNMARK=%PROJ%\tasks\logs\.agent_%AGENT%_runmark"
 echo %DATE% %TIME% %AGENT%> "%RUNMARK%"
 
+REM   MCP IN THE CLEAN ROOM. Claude Code reads .mcp.json from the WORKING DIRECTORY,
+REM   and the clean room deliberately has none - so until 2026-09-14 every scheduled
+REM   agent ran with ZERO project MCP servers. --add-dir grants file access only, not
+REM   servers. Every AUTO-PERSIST mandate and read-back instruction in all 7 briefs was
+REM   therefore unexecutable prose, and the fleet had never remembered anything.
+REM   --mcp-config names the config explicitly so the servers load WITHOUT moving cwd,
+REM   which keeps the clean room and the no-JARVIS isolation exactly as it was.
+REM   --strict-mcp-config additionally drops the user's global connectors, so the agent
+REM   gets these servers and nothing else - tighter isolation than before, not looser.
+REM   NOT FIXED HERE: .mcp.json declares smartentry as "node ./server/mcp_server.js",
+REM   a cwd-relative path that cannot resolve in the clean room, so 6 of 7 servers load
+REM   and smartentry does not. Fixing it means editing .mcp.json - a second file - which
+REM   the 2026-09-14 freeze forbids in this repair. Logged, not chased.
 pushd "%AGENTCWD%"
-call claude -p "You are the '%AGENT%' agent for SmartEntry Pro. Your full brief is the file %DEF% - READ IT FIRST and follow it exactly, including everything it forbids. Work on the repository at %PROJ%. HARD RULES for this run, which override anything in the brief that sounds permissive: do NOT edit, create or delete any source file; do NOT run git commit, git push, git reset or git checkout; do NOT install, register or modify any scheduled task; do NOT place, size or close a trade. You are producing a REPORT, not a change. Write your findings to %PROJ%\tasks\logs\agent_%AGENT%_report.md, overwriting it, with the date on the first line. If you find something worth changing, describe it there with the file, the exact change and the evidence - do not apply it. Be specific and short; every claim must name the file or command you verified it from." --dangerously-skip-permissions --output-format text --append-system-prompt "%NONINTERACTIVE%" --add-dir "%PROJ%" <nul > "%RUNOUT%" 2>&1
+call claude -p "You are the '%AGENT%' agent for SmartEntry Pro. Your full brief is the file %DEF% - READ IT FIRST and follow it exactly, including everything it forbids. Work on the repository at %PROJ%. HARD RULES for this run, which override anything in the brief that sounds permissive: do NOT edit, create or delete any source file; do NOT run git commit, git push, git reset or git checkout; do NOT install, register or modify any scheduled task; do NOT place, size or close a trade. You are producing a REPORT, not a change. Write your findings to %PROJ%\tasks\logs\agent_%AGENT%_report.md, overwriting it, with the date on the first line. If you find something worth changing, describe it there with the file, the exact change and the evidence - do not apply it. Be specific and short; every claim must name the file or command you verified it from." --dangerously-skip-permissions --output-format text --append-system-prompt "%NONINTERACTIVE%" --add-dir "%PROJ%" --mcp-config "%PROJ%\.mcp.json" --strict-mcp-config <nul > "%RUNOUT%" 2>&1
 set CLAUDE_RC=%ERRORLEVEL%
 popd
 
