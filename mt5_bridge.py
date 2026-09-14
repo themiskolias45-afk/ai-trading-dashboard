@@ -72,11 +72,47 @@ consecutive_losses = 0
 MAX_CONSECUTIVE_LOSSES = int(os.environ.get("MAX_CONSEC_LOSSES", "3"))
 trading_halted   = False
 halt_reason      = ""
+current_trading_day = datetime.now().strftime("%Y-%m-%d")
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def reset_daily_state_if_new_day():
+    """Roll the circuit breaker over at the start of each trading day.
+
+    Without this, daily_pnl/consecutive_losses never reset: "daily loss limit"
+    silently becomes a lifetime cumulative limit (a few small losing days add up
+    and trip it even though no single day breached it), and a halt triggered on
+    one bad day stays in effect forever — the bridge needs a manual process
+    restart to resume trading, with no code path that ever clears it.
+    """
+    global current_trading_day, daily_pnl, consecutive_losses, trading_halted, halt_reason
+    today = datetime.now().strftime("%Y-%m-%d")
+    if today == current_trading_day:
+        return
+    if trading_halted or daily_pnl != 0.0 or consecutive_losses != 0:
+        log(f"New trading day ({today}) — resetting circuit breaker "
+            f"(was: P&L ${daily_pnl:.2f}, {consecutive_losses} consecutive losses, "
+            f"halted={trading_halted})", CYAN)
+    current_trading_day = today
+    daily_pnl = 0.0
+    consecutive_losses = 0
+    trading_halted = False
+    halt_reason = ""
+    try:
+        requests.post(f"{SERVER_URL}/api/risk-status", json={
+            "dailyPnl": 0.0,
+            "consecutiveLosses": 0,
+            "halted": False,
+            "haltReason": "",
+            "account": ACCOUNT_TAG or "default",
+        }, timeout=3)
+    except Exception:
+        pass
+
+
 def check_circuit_breaker():
     global trading_halted, halt_reason
+    reset_daily_state_if_new_day()
     if trading_halted:
         return True
     acc = mt5.account_info()
