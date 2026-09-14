@@ -49,6 +49,12 @@ if "%~1"=="" (
 set "AGENT=%~1"
 set "PROJ=%~dp0.."
 for %%I in ("%PROJ%") do set "PROJ=%%~fI"
+REM  Forward-slash form of PROJ, for --mcp-config ONLY. Measured 2026-09-14 on both
+REM  boxes: claude 2.1.270 (laptop) accepts a backslash config path, claude 2.1.251
+REM  (VPS) SILENTLY LOADS NOTHING from one - MCP_SERVERS=NONE, exit 0, no error. The
+REM  forward-slash form loads the servers on BOTH builds, so it is the portable one.
+REM  Everything else in this file keeps using %PROJ% unchanged.
+set "PROJFWD=%PROJ:\=/%"
 set "DEF=%PROJ%\.claude\agents\%AGENT%.md"
 
 if not exist "%DEF%" (
@@ -147,7 +153,7 @@ REM   a cwd-relative path that cannot resolve in the clean room, so 6 of 7 serve
 REM   and smartentry does not. Fixing it means editing .mcp.json - a second file - which
 REM   the 2026-09-14 freeze forbids in this repair. Logged, not chased.
 pushd "%AGENTCWD%"
-call claude -p "You are the '%AGENT%' agent for SmartEntry Pro. Your full brief is the file %DEF% - READ IT FIRST and follow it exactly, including everything it forbids. Work on the repository at %PROJ%. HARD RULES for this run, which override anything in the brief that sounds permissive: do NOT edit, create or delete any source file; do NOT run git commit, git push, git reset or git checkout; do NOT install, register or modify any scheduled task; do NOT place, size or close a trade. You are producing a REPORT, not a change. Write your findings to %PROJ%\tasks\logs\agent_%AGENT%_report.md, overwriting it, with the date on the first line. If you find something worth changing, describe it there with the file, the exact change and the evidence - do not apply it. Be specific and short; every claim must name the file or command you verified it from." --dangerously-skip-permissions --output-format text --append-system-prompt "%NONINTERACTIVE%" --add-dir "%PROJ%" --mcp-config "%PROJ%\.mcp.json" --strict-mcp-config <nul > "%RUNOUT%" 2>&1
+call claude -p "You are the '%AGENT%' agent for SmartEntry Pro. Your full brief is the file %DEF% - READ IT FIRST and follow it exactly, including everything it forbids. Work on the repository at %PROJ%. HARD RULES for this run, which override anything in the brief that sounds permissive: do NOT edit, create or delete any source file; do NOT run git commit, git push, git reset or git checkout; do NOT install, register or modify any scheduled task; do NOT place, size or close a trade. You are producing a REPORT, not a change. Write your findings to %PROJ%\tasks\logs\agent_%AGENT%_report.md, overwriting it, with the date on the first line. If you find something worth changing, describe it there with the file, the exact change and the evidence - do not apply it. Be specific and short; every claim must name the file or command you verified it from." --dangerously-skip-permissions --output-format text --append-system-prompt "%NONINTERACTIVE%" --add-dir "%PROJ%" --mcp-config "%PROJFWD%/.mcp.json" --strict-mcp-config <nul > "%RUNOUT%" 2>&1
 set CLAUDE_RC=%ERRORLEVEL%
 popd
 
