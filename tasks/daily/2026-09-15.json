@@ -14,11 +14,11 @@
     {
       "ts": "2026-09-15T03:57:48.195+00:00",
       "tag": "FINDING",
-      "text": "FINDING (log, not chase): gold TV chart draws R1/S1 pivot levels as SL/TP (4351.41 / 4249.65, R:R 1.62) while the live engine uses a 1.5x ATR stop (4465.32 / 3996.63, R:R 2.0). Same BREAKDOWN setup, same conf 40. BTC and SPX charts match live exactly - only gold diverges. Chart is current (0.7h old), not stale. This is a chart-vs-engine plan mismatch on gold only, consistent with gold’s separate futures/pivot path seen all week. Deferred to post-freeze."
+      "text": "FINDING (log, not chase): gold TV chart draws R1/S1 pivot levels as SL/TP (4351.41 / 4249.65, R:R 1.62) while the live engine uses a 1.5x ATR stop (4465.32 / 3996.63, R:R 2.0). Same BREAKDOWN setup, same conf 40. BTC and SPX charts match live exactly - only gold diverges. Chart is current (0.7h old), not stale. CORRECTED: the divergence is pivot-vs-ATR on the DRAW side, not a data-source split - the signal itself is dataSource mt5 / sourceSymbol XAUUSD, and the GC=F ticker field is only a legacy label. Deferred to post-freeze. NOTE: VPS SmartEntry TV Daily Plan next fires ~04:45 UTC and will redraw the same layout - expect the same gold pivot/ATR mismatch on the VPS chart, it is the same drawing code. Not watched live, not fixed."
     }
   ],
   "signals": [],
   "trades": [],
   "created_at": "2026-09-15T03:05:42.071355+00:00",
-  "updated_at": "2026-09-15T03:57:48.195+00:00"
+  "updated_at": "2026-09-15T04:01:18.949+00:00"
 }
