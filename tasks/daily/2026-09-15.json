@@ -1,0 +1,24 @@
+{
+  "date": "2026-09-15",
+  "entries": [
+    {
+      "ts": "2026-09-15T03:05:42.071355+00:00",
+      "tag": "PLAN",
+      "text": "Daily Plan 2026-09-15 (levels: confluence-zones): |   BTC WAIT | R1 77834.67 S1 77336.41 |   GOLD WAIT | R1 4395.6 S1 4315.79 |   SPX WAIT | R1 7636.81 S1 7616.65 |   MACRO VIX 17.1 — NORMAL |   MACRO DXY 99.59 RISING (+0.76% 5d) — a rising dollar is a headwind for Gold, a falling one a tailwind |   ⚠ 1 high-impact events today — check calendar"
+    },
+    {
+      "ts": "2026-09-15T03:28:27.341420+00:00",
+      "tag": "EOD",
+      "text": "EOD 2026-09-15: No trades today — rest day."
+    },
+    {
+      "ts": "2026-09-15T03:57:48.195+00:00",
+      "tag": "FINDING",
+      "text": "FINDING (log, not chase): gold TV chart draws R1/S1 pivot levels as SL/TP (4351.41 / 4249.65, R:R 1.62) while the live engine uses a 1.5x ATR stop (4465.32 / 3996.63, R:R 2.0). Same BREAKDOWN setup, same conf 40. BTC and SPX charts match live exactly - only gold diverges. Chart is current (0.7h old), not stale. This is a chart-vs-engine plan mismatch on gold only, consistent with gold’s separate futures/pivot path seen all week. Deferred to post-freeze."
+    }
+  ],
+  "signals": [],
+  "trades": [],
+  "created_at": "2026-09-15T03:05:42.071355+00:00",
+  "updated_at": "2026-09-15T03:57:48.195+00:00"
+}
