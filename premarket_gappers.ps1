@@ -264,7 +264,11 @@ $hits = @($withPre | Where-Object {
 } | Sort-Object { - [math]::Abs($_.gapPercent) })
 
 if ($hits.Count -gt 0) {
-    Write-Output ("{0,-8} {1,>8} {2,>10} {3,>9} {4,>6} {5,>12}  {6}" -f `
+    # .NET alignment is {index,width} - positive right-aligns, negative left-aligns.
+    # There is no ">" in a .NET format specifier; writing {1,>8} throws
+    # "Input string was not in a correct format" at RUNTIME, not at parse time, so it
+    # survives every syntax check and only appears when a row actually prints.
+    Write-Output ("{0,-8} {1,8} {2,10} {3,9} {4,6} {5,12}  {6}" -f `
         'SYMBOL','GAP %','PREMARKET','PREVCLOSE','DIR','PRE VOL','LAST PRINT (UTC)')
     Write-Output ('-' * 78)
     foreach ($h in $hits) {
