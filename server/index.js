@@ -7921,6 +7921,16 @@ app.post("/api/trade-opened", async (req, res) => {
       // would become evidence. Read from the BRIDGE, not the cache - the cache at
       // write time is the defect the comment above was written about.
       h1Agree:        fromBridge.h1Agree ?? null,
+      // preMacroConfidence, carried onto the fill. It is computed at generateSignalMTF
+      // and published on /api/signals, and was then DROPPED here - 0 of 24 journal rows
+      // held it, so no fill could ever be split by whether the macro block pushed it over
+      // the gate or pulled it under.
+      //
+      // IT IS NOT "confidence before the macro filters". It is captured deliberately
+      // BEFORE the DXY filter and therefore before the Gold neutral-H4 sizing clamp as
+      // well, so the difference from `confidence` covers every post-assembly adjustment,
+      // not only the macro ones. Record only - nothing reads it.
+      preMacroConfidence: fromBridge.preMacroConfidence ?? null,
       setupSource:    "bridge",
     };
     plannedRr = Number.isFinite(fromBridge.rr) ? fromBridge.rr : null;
@@ -7953,6 +7963,8 @@ app.post("/api/trade-opened", async (req, res) => {
       // It also means the fill rate depends on mt5_bridge.py reaching BOTH boxes; with
       // only one deployed the other keeps writing indistinguishable nulls.
       h1Agree:        sig.h1Agree ?? null,
+      // Same field on the cache-corroborated branch; same meaning, same caveat as above.
+      preMacroConfidence: sig.preMacroConfidence ?? null,
       setupSource:    "cache-corroborated",
     };
     plannedRr = Number.isFinite(sig.rr) ? sig.rr : null;

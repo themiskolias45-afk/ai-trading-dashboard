@@ -1856,6 +1856,10 @@ def place_order(symbol, signal_type, entry, stop, target, risk_amount=None,
                     # evidence. Same reasoning as `rr` above - it must come from the
                     # signal that was ACTED ON, not from the cache at write time.
                     "h1Agree":        sig.get("h1Agree"),
+                    # Already on the wire from /api/signals and dropped at the fill until
+                    # 2026-09-17. Captured BEFORE the DXY filter and the Gold sizing clamp, so
+                    # confidence minus this covers every post-assembly adjustment.
+                    "preMacroConfidence": sig.get("preMacroConfidence"),
                 }
             elif setup:
                 # No full signal, but the caller still knew the setup it traded.
