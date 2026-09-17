@@ -215,7 +215,14 @@ function Get-SymbolQuote {
         premarketPrice  = [math]::Round($lastPre, 4)
         gapPercent      = [math]::Round($gapPct, 2)
         direction       = $(if ($gapPct -ge 0) { 'UP' } else { 'DOWN' })
-        premarketVolume = [long]$preVol
+        # NULL, NOT 0, when this feed supplied no volume.
+        #
+        # Measured 2026-09-17: Yahoo's 1-minute premarket bars return volume as a
+        # literal 0, not null - AMD had 328 premarket bars, all non-null, all zero.
+        # Reporting that as 0 would read as "measured, and there was none", which is a
+        # different and false claim. An unmeasurable quantity must not average in or
+        # filter as if it were a reading.
+        premarketVolume = $(if ($preVol -gt 0) { [long]$preVol } else { $null })
         premarketBars   = $preBars
         lastPrintUtc    = [DateTimeOffset]::FromUnixTimeSeconds([long]$lastPreAt).UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ssZ')
         error           = $null
@@ -257,11 +264,32 @@ if ($failed -eq $universe.Count -and $universe.Count -gt 0) {
 }
 
 $withPre = @($all | Where-Object { $_.ok -and $_.hasPremarket })
+# Is premarket volume available AT ALL from this feed right now? Measured, not assumed.
+$volumeAvailable = @($withPre | Where-Object { $null -ne $_.premarketVolume }).Count -gt 0
+$volumeFilterDropped = $false
+if ($MinPremarketVolume -gt 0 -and -not $volumeAvailable) {
+    # REFUSE TO APPLY IT rather than silently match nothing. A filter on a quantity the
+    # feed does not supply would return an empty list that looks exactly like a quiet
+    # market, which is the worst possible failure for a screen.
+    $volumeFilterDropped = $true
+}
+
 $hits = @($withPre | Where-Object {
+    $volOk = $true
+    if ($MinPremarketVolume -gt 0 -and $volumeAvailable) {
+        $volOk = ($null -ne $_.premarketVolume -and $_.premarketVolume -ge $MinPremarketVolume)
+    }
     [math]::Abs($_.gapPercent) -ge $MinGapPercent -and
     $_.premarketPrice -ge $MinPrice -and
-    $_.premarketVolume -ge $MinPremarketVolume
+    $volOk
 } | Sort-Object { - [math]::Abs($_.gapPercent) })
+
+if ($volumeFilterDropped) {
+    Write-Output ("NOTE: -MinPremarketVolume {0} was NOT applied. This feed returned no premarket" -f $MinPremarketVolume)
+    Write-Output "      volume for any symbol (Yahoo reports 1m premarket volume as 0). Filtering on it"
+    Write-Output "      would have returned an empty list indistinguishable from a quiet market."
+    Write-Output ""
+}
 
 if ($hits.Count -gt 0) {
     # .NET alignment is {index,width} - positive right-aligns, negative left-aligns.
@@ -272,9 +300,11 @@ if ($hits.Count -gt 0) {
         'SYMBOL','GAP %','PREMARKET','PREVCLOSE','DIR','PRE VOL','LAST PRINT (UTC)')
     Write-Output ('-' * 78)
     foreach ($h in $hits) {
-        Write-Output ("{0,-8} {1,8:+0.00;-0.00} {2,10:N2} {3,9:N2} {4,6} {5,12:N0}  {6}" -f `
+        $volCell = 'n/a'
+        if ($null -ne $h.premarketVolume) { $volCell = '{0:N0}' -f $h.premarketVolume }
+        Write-Output ("{0,-8} {1,8:+0.00;-0.00} {2,10:N2} {3,9:N2} {4,6} {5,12}  {6}" -f `
             $h.symbol, $h.gapPercent, $h.premarketPrice, $h.prevClose, $h.direction,
-            $h.premarketVolume, $h.lastPrintUtc)
+            $volCell, $h.lastPrintUtc)
     }
 } else {
     Write-Output "No symbol passed the filter."
