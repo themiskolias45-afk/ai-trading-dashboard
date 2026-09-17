@@ -61,6 +61,10 @@
     // already exist, so it needs no route in index.js and no server restart to appear.
     { href: "/dashboard/i40-pilot.html", label: "i40 Pilot",
       match: ["/dashboard/i40-pilot.html", "/i40-pilot"] },
+    // The reader for dashboard/premarket-gappers.json, which the weekday scan wrote
+    // and nothing read. Static path, same reason as its neighbours: no route, no restart.
+    { href: "/dashboard/gappers.html", label: "Gappers",
+      match: ["/dashboard/gappers.html", "/gappers"] },
     { href: "/system", label: "System",
       match: ["/system", "/dashboard/system.html"] },
     { sep: true },
