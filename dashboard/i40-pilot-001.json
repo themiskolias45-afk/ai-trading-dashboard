@@ -1,0 +1,79 @@
+{
+  "id": "PILOT-001",
+  "title": "Is confidence inversely calibrated?",
+  "status": "PRE-REGISTERED",
+  "preRegisteredAt": "2026-09-17T23:10:00Z",
+  "preRegisteredBy": "session 2026-09-17, approved by the operator",
+  "feedsTheGate": false,
+
+  "whyPreRegistered": "The four measurements below are fixed BEFORE the pilot runs, which is the whole point of a pilot charter: it prevents anyone retrospectively finding the metric that makes the result look successful. Nothing in this file may be edited once the pilot is running. If a criterion turns out to be wrong, the pilot is KILLED and a PILOT-002 is registered with the corrected criterion and a new baseline - it is not quietly amended.",
+
+  "hypothesis": "Confidence is INVERSELY calibrated on this account: trades entered at 85%+ confidence return a worse realised R per trade than trades entered at 65-74%. If true, the highest-confidence signals are the worst ones, and raising confidenceThreshold would concentrate trading into the losing tier.",
+
+  "nullHypothesis": "The 85%+ tier's mean realised R is not distinguishable from zero, or is not worse than the 65-74% tier. Confidence carries no reliable signal about payoff either way.",
+
+  "primaryOutcomeMetric": {
+    "name": "avgRealizedR of the 85%+ confidence tier",
+    "definition": "mean of realizedRFromPrices(direction, entry, sl, closePrice) over CLOSED journal fills whose confidence >= 85",
+    "source": "/api/checksystem -> calibration[tier='85%+'].avgRealizedR",
+    "whyThisOne": "R, not dollars. Lot sizes on this account have varied 38x across the live record and were pinned by fixedLotSize and by the broker volume_min on most fills, so dollars measure the sizing pipeline rather than the setup. Win rate is excluded as a primary metric for the reason this pilot exists: it cannot see payoff at all."
+  },
+
+  "baseline": {
+    "measuredAt": "2026-09-17T23:05:00Z",
+    "measuredFrom": "laptop journal, 24 closed fills spanning 48 days (0.50 fills/day overall)",
+    "note": "The VPS is a SEPARATE account with its own journal and is recorded here as an independent replication, not pooled. Pooling them would inflate the row count without adding information - the two boxes run the same config on the same bars.",
+    "tiers": {
+      "65-74": { "n": 5, "meanR": 0.519, "sdR": 1.648, "totalPnl": 21.81 },
+      "75-84": { "n": 9, "meanR": -0.287, "sdR": 0.861, "totalPnl": -219.87 },
+      "85+":   { "n": 6, "meanR": -0.391, "sdR": 1.209, "totalPnl": -840.92 }
+    },
+    "peerReplication": {
+      "box": "VPS 11581419",
+      "tiers": {
+        "65-74": { "n": 5, "meanR": 0.09, "totalPnl": -72.94 },
+        "75-84": { "n": 5, "meanR": -0.302, "totalPnl": -248.37 },
+        "85+":   { "n": 13, "meanR": -0.426, "totalPnl": -917.97 }
+      },
+      "why": "The direction of the effect reproduces on an independent account with a LARGER top-tier sample (n=13 vs 6). That is corroboration, not proof - same engine, same bars, same config."
+    }
+  },
+
+  "minimumViableTarget": {
+    "value": "85+ tier reaches n >= 37 with its mean realised R still below zero",
+    "derivation": "n = (1.96 * sd / |mean|)^2 = (1.96 * 1.209 / 0.391)^2 = 37 fills, the sample needed to separate the observed mean from zero at 95%. DERIVED from the observed effect and dispersion, NOT chosen. A target picked by hand is the failure this pre-registration exists to prevent.",
+    "deliberatelyNotTheSystemBar": "tasks/lab_promote.cjs sets MIN_TRADES = 100 per cell for PROMOTING a strategy. That bar is not used here and the difference is stated rather than hidden: at the 85+ tier's observed rate of 0.125 fills/day, 100 fills is roughly 800 days - far outside MAX_DAYS_TO_PROOF. This pilot is powered to answer its question, not to promote a strategy. Clearing it justifies a walk-forward, NOT a gate change."
+  },
+
+  "guardrails": {
+    "why": "What is not allowed to get worse while the pilot runs. Any breach ends the pilot immediately - a pilot that damages the system it is measuring has already failed regardless of its result.",
+    "items": [
+      { "id": "firing-set", "rule": "The set of setups that fire must not shrink. No signal may be suppressed to make the tiers look cleaner.", "check": "diff /api/signals before and after any change" },
+      { "id": "no-gate-change", "rule": "confidenceThreshold must remain 70 for the duration. Changing the gate mid-pilot destroys the baseline and the pilot with it.", "check": "/api/strategy-settings confidenceThreshold" },
+      { "id": "accumulation", "rule": "The journal, the shadow ledgers and the calibration record must keep accumulating. Sample size is the binding constraint; anything that slows it costs more than this pilot can return.", "check": "/api/learning reconciliation.complete stays true" },
+      { "id": "no-scoring-of-backfill", "rule": "Backfilled executor rows stay OUT of learning. They are historical and scoring them would rewrite the calibration record this pilot measures.", "check": "reconciliation.unscoredByDesign continues to account for them" }
+    ]
+  },
+
+  "timebox": {
+    "projectedDaysToProof": 294,
+    "derivation": "37 fills needed / 0.125 fills per day observed in the 85+ tier = 294 days",
+    "hardStop": 365,
+    "hardStopSource": "tasks/lab_promote.cjs MAX_DAYS_TO_PROOF - 'A candidate that cannot be settled inside a year is not a finding, it is a permanent maybe.'",
+    "note": "294 is INSIDE the 365 bar, but not by much, and it assumes the trade rate holds. If the rate falls the pilot expires unproven, and that is a real outcome to be reported rather than extended."
+  },
+
+  "goNoGo": {
+    "go": "85+ tier at n >= 37 with mean R < 0 AND below the 65-74% tier: the effect is real at this sample. NEXT STEP IS A WALK-FORWARD, not a gate change - a tier table is not a walk-forward and loses to one wherever they disagree.",
+    "noGo": "85+ tier at n >= 37 with mean R indistinguishable from zero, or not worse than 65-74%: hypothesis killed, recorded as measured-and-false, and confidence is left alone.",
+    "expired": "365 days reached without n >= 37: reported as UNPROVEN at this trade rate. Not a failure of the hypothesis - a statement that this system cannot answer it at its current sample rate, which is itself the most useful thing the pilot can say."
+  },
+
+  "whatWouldChangeTheAnswer": [
+    "A sizing change during the pilot. R is sizing-independent by construction, but a lot-size change that alters WHICH setups fill would change the population being measured.",
+    "The gate moving off 70. The tiers are defined relative to a gate at 70; move it and the 65-74 tier partly stops existing.",
+    "A new setup entering the 85+ tier in volume. The tier is a mix of setups, not one strategy, and a single new high-confidence setup could dominate it."
+  ],
+
+  "notes": "PILOT-001 is a measurement, not a change. It places no order, moves no threshold and modifies no code. Its only output is a verdict and the evidence behind it."
+}
