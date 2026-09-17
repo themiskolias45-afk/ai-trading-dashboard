@@ -8957,7 +8957,37 @@ app.get("/api/checksystem", (_, res) => {
   const calibration = tiers.map(tier => {
     const group = scoredForCalibration.filter(t => Number(t.confidence) >= tier.min && Number(t.confidence) <= tier.max);
     const gWins = group.filter(t => t.pnl > 0).length;
-    return { tier: tier.label, trades: group.length, winRate: group.length > 0 ? parseFloat((gWins / group.length * 100).toFixed(1)) : null };
+    // PAYOFF, beside the win rate. WIN RATE ALONE CANNOT SEE MAGNITUDE, and this is the
+    // surface a morning agent fetches first - its own comments call it "the surface that
+    // answers 'is anything wrong'". A tier reading 16.7% could be a mild drift or it
+    // could hold most of the money this account has ever lost, and until now the two
+    // were indistinguishable here.
+    //
+    // /api/performance already carries avgPnl for the SAME calibration, and
+    // dashboard/index.html recomputes and renders it client-side. /api/checksystem was
+    // the only one of the three that dropped it.
+    //
+    // rTrades sits beside avgRealizedR deliberately, for the same reason
+    // /api/performance keeps realizedRTrades beside its own: a mean over an unstated
+    // denominator is how a partial read gets mistaken for a reading. realizedRFromPrices
+    // returns null when a row cannot be scored, and those rows are EXCLUDED from the
+    // mean rather than averaged in as zero.
+    //
+    // Additive and payload-only: no tier boundary moves, winRate is untouched, and
+    // nothing on the trade path reads calibration.
+    const gPnl = group.reduce((sum, t) => sum + (t.pnl ?? 0), 0);
+    const gR = group
+      .map(t => realizedRFromPrices(t.direction, t.entry, t.sl, t.closePrice))
+      .filter(r => Number.isFinite(r));
+    return {
+      tier: tier.label,
+      trades: group.length,
+      winRate: group.length > 0 ? parseFloat((gWins / group.length * 100).toFixed(1)) : null,
+      totalPnl: group.length ? parseFloat(gPnl.toFixed(2)) : null,
+      avgPnl: group.length ? parseFloat((gPnl / group.length).toFixed(2)) : null,
+      avgRealizedR: gR.length ? parseFloat((gR.reduce((a, b) => a + b, 0) / gR.length).toFixed(3)) : null,
+      rTrades: gR.length,
+    };
   });
   const calibrationTiered = calibration.reduce((sum, t) => sum + t.trades, 0);
 
