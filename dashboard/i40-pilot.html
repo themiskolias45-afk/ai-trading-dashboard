@@ -342,9 +342,21 @@
       var reach = b.reachable === false
         ? '<span class="pill bad">unreachable</span>'
         : '<span class="pill ok">reachable</span>';
+      // THE TWO BOXES REPORT THE GATE AT DIFFERENT PATHS, measured 2026-09-17:
+      // peer carries `gate` directly, thisBox carries it at settings.confidenceThreshold
+      // and has no `gate` key at all. Reading b.gate for both rendered the peer's 70
+      // against a BLANK for the local box - which looks like a divergence and is not one.
+      // Falls back rather than assuming either shape; still shows a dash if genuinely absent.
+      var gate = (b.gate === undefined || b.gate === null)
+        ? ((b.settings && b.settings.confidenceThreshold !== undefined)
+            ? b.settings.confidenceThreshold : null)
+        : b.gate;
+      // NOT passed through esc(): esc turns "&" into "&amp;" so an entity written here
+      // would render as the literal text "&mdash;". Built outside the escaper instead.
+      var gateCell = (gate === null || gate === undefined) ? "&mdash;" : esc(gate);
       return "<tr><td><strong>" + esc(label) + "</strong></td>" +
              "<td>" + reach + "</td>" +
-             '<td class="num">' + esc(b.gate === undefined || b.gate === null ? "&mdash;" : b.gate) + "</td>" +
+             '<td class="num">' + gateCell + "</td>" +
              "<td>" + (b.halted ? '<span class="pill bad">halted</span>'
                                 : '<span class="pill ok">live</span>') + "</td>" +
              "<td>" + (b.settingsError

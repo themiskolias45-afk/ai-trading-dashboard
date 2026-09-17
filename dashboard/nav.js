@@ -56,6 +56,11 @@
     // /dashboard, so it needs no route in index.js and no server restart to appear.
     { href: "/dashboard/instruments.html", label: "Instruments",
       match: ["/dashboard/instruments.html", "/instruments"] },
+    // i40 Pilot: what is under test, how old the evidence is, and what would settle it.
+    // Static path for the same reason as its neighbours - it reads live endpoints that
+    // already exist, so it needs no route in index.js and no server restart to appear.
+    { href: "/dashboard/i40-pilot.html", label: "i40 Pilot",
+      match: ["/dashboard/i40-pilot.html", "/i40-pilot"] },
     { href: "/system", label: "System",
       match: ["/system", "/dashboard/system.html"] },
     { sep: true },
