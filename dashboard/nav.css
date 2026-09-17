@@ -75,16 +75,26 @@
 .se-rail-brand:hover { color: var(--accent, #8b5cf6); }
 
 /* ── the links ───────────────────────────────────────────────────────────── */
-/* The link row is the ONLY thing that scrolls. Eight links do not fit at 390px,
-   and a nav that widens the document is how five of these pages started scrolling
-   sideways in the first place. */
+/* IT WRAPS. It used to be one nowrap row with overflow-x:auto and the scrollbar
+   deliberately hidden, which was right for eight links and became a bug at
+   eighteen: measured 2026-09-18 at a 1275px window, scrollWidth 1401 vs clientWidth
+   1119 left 282px and FOUR links - System Map, Architecture, Systems Plan, JARVIS -
+   past the right edge with no scrollbar, no fade and no arrow to reveal them. A
+   mouse cannot scroll a hidden-scrollbar row, so the agent page, last in the list,
+   was simply unreachable from every page in the product.
+
+   Hiding overflow behind an invisible scrollbar is the same failure this repo keeps
+   finding elsewhere: a control that exists but has no surface. Wrapping has no
+   hidden state - every link is on screen or the rail is taller, and you can see
+   which.
+
+   The row still does not widen the document (that is what made five pages scroll
+   sideways originally); it grows DOWNWARD instead, 37px -> 72px on a second row. */
 .se-rail-links {
   display: flex; align-items: stretch; gap: 0;
-  overflow-x: auto; overflow-y: hidden;
-  scrollbar-width: none; -ms-overflow-style: none;
+  flex-wrap: wrap;
   flex: 1 1 auto; min-width: 0;
 }
-.se-rail-links::-webkit-scrollbar { display: none; }
 
 .se-rail-link {
   display: flex; align-items: center;
@@ -124,8 +134,18 @@
   outline-offset: -2px;
 }
 
+/* Phone width is the one place wrapping is wrong: eighteen links at .7rem would
+   stack five rows deep and bury the page. There the row goes back to scrolling -
+   and a horizontal swipe IS the affordance on touch, which is exactly what a mouse
+   does not have. */
 @media (max-width: 640px) {
   .se-rail-brand { padding: 0 10px 0 12px; }
   .se-rail-brand span { display: none; } /* the mark alone at phone width; the row needs the space */
   .se-rail-link { padding: 10px 10px; font-size: .7rem; }
+  .se-rail-links {
+    flex-wrap: nowrap;
+    overflow-x: auto; overflow-y: hidden;
+    scrollbar-width: none; -ms-overflow-style: none;
+  }
+  .se-rail-links::-webkit-scrollbar { display: none; }
 }
