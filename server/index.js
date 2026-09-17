@@ -8813,6 +8813,27 @@ app.get("/api/learning", (_, res) => {
     const closedFills = tradeJournal.filter(t =>
       t && t.status === "CLOSED" && typeof t.pnl === "number").length;
 
+    // A THIRD CATEGORY: closed, correctly named, and DELIBERATELY not scored.
+    //
+    // The backfill branch on /api/trade-closed recovers executor fills the journal
+    // could never see (magics 20260902/3/4) and pointedly does NOT call updateLearning,
+    // because those increments are irreversible and would rewrite weeks of calibration
+    // against trades that closed days earlier. So these rows are CLOSED with a real
+    // setup name, which means they are neither attributed nor "unattributed" - and the
+    // completeness equation below counted them nowhere and flipped to false.
+    //
+    // Measured 2026-09-17: 24 closed, 19 attributed, 0 unattributed, 4 backfilled
+    // (FVG_CONTINUATION x3, TK_SWING_PULLBACK x1, -91.59 together) - and one legacy
+    // row. Reporting them as a named category is the honest fix: the record is
+    // complete, and WHY part of it is unscored is now stated rather than inferred from
+    // a false alarm.
+    //
+    // This changes no learning value. getLearningBoost reads signalTf.setup and these
+    // names arrive as req.body.model, so they cannot reach the gate either way.
+    const unscoredByDesignFills = tradeJournal.filter(t =>
+      t && t.status === "CLOSED" && typeof t.pnl === "number" &&
+      t.source === "ledger-backfill");
+
     // Per-asset rows, built the same way as `summary` but WITHOUT a boost field,
     // because nothing boosts off them. Exposed here so this table has a reader on
     // day one - an unread table is how the near-miss census sat invisible for weeks.
@@ -8863,7 +8884,17 @@ app.get("/api/learning", (_, res) => {
         closedFills,
         attributedToSetups: attributedCount,
         unattributed: unattributedFills.length,
-        complete: closedFills === attributedCount + unattributedFills.length,
+        // Closed and correctly named, but never scored into learning on purpose.
+        unscoredByDesign: unscoredByDesignFills.length,
+        unscoredByDesignNetPnl: +unscoredByDesignFills
+          .reduce((sum, t) => sum + (t.pnl || 0), 0).toFixed(2),
+        unscoredByDesignWhy: "recovered by the ledger backfill (executor magics the "
+          + "journal could not see). updateLearning is deliberately NOT called for "
+          + "these: it increments irreversibly and would rewrite the calibration "
+          + "record against trades that closed days earlier. They cannot reach the "
+          + "gate - getLearningBoost reads signalTf.setup and these arrive as model.",
+        complete: closedFills ===
+          attributedCount + unattributedFills.length + unscoredByDesignFills.length,
       },
       // ALWAYS PRESENT, null when the read succeeded. A field that appears only on
       // failure is one a consumer forgets to check, and cannot distinguish a healthy
