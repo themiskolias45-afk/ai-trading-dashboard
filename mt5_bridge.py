@@ -281,6 +281,22 @@ halt_cause       = ""       # HALT_CAUSE_STREAK | HALT_CAUSE_DAILY_LOSS | ""
 HALT_CAUSE_STREAK      = "STREAK"
 HALT_CAUSE_DAILY_LOSS  = "DAILY_LOSS"
 
+# BREAKER EVENT HISTORY. Monotonic counters, added 2026-09-17.
+#
+# halted/haltedAt/haltCause describe the breaker's state RIGHT NOW and are cleared the
+# moment a cooldown ends. So a breaker in a permanent trip-release cycle was byte-
+# identical, on every API surface, to one that had never fired in its life: halted false,
+# haltedAt null, haltCause null. The trips existed only as lines in a log nobody reduces.
+#
+# These never reset - not on release, not on a day roll, not on restart (they round-trip
+# through tasks/breaker_state_A.json). A counter that resets answers a different question
+# from the one being asked here, which is "has this thing been firing".
+halt_trips_streak     = 0    # monotonic: STREAK trips
+halt_trips_daily_loss = 0    # monotonic: DAILY_LOSS trips
+halt_releases         = 0    # monotonic: timed self-releases
+last_halt_at          = ""   # ISO-8601 Z of the most recent trip, "" if never
+last_release_at       = ""   # ISO-8601 Z of the most recent self-release
+
 # How long a STREAK halt stands before the bridge releases itself.
 #
 # 48h rather than the conventional 24h because this system averages well under a trade
@@ -349,6 +365,7 @@ def load_breaker_state():
     """
     global daily_pnl, consecutive_losses, trading_halted, halt_reason, last_counted_close
     global halted_at, halt_cause
+    global halt_trips_streak, halt_trips_daily_loss, halt_releases, last_halt_at, last_release_at
     try:
         with open(BREAKER_STATE_PATH, "r", encoding="utf-8") as state_file:
             state = json.load(state_file)
@@ -368,6 +385,14 @@ def load_breaker_state():
     halt_reason        = str(state.get("haltReason", "") or "")
     halt_cause         = str(state.get("haltCause", "") or "")
     halted_at          = str(state.get("haltedAt", "") or "")
+    # Monotonic history. A file written before these existed yields 0/"" - correct, since
+    # this bridge has no record of those trips either; it under-counts rather than
+    # inventing a number.
+    halt_trips_streak     = int(state.get("haltTripsStreak", 0) or 0)
+    halt_trips_daily_loss = int(state.get("haltTripsDailyLoss", 0) or 0)
+    halt_releases         = int(state.get("haltReleases", 0) or 0)
+    last_halt_at          = str(state.get("lastHaltAt", "") or "")
+    last_release_at       = str(state.get("lastReleaseAt", "") or "")
 
     # A state file written before haltedAt existed carries a halt with no clock on it.
     # Reading that as epoch-zero would release it the instant this bridge starts, which
@@ -421,6 +446,14 @@ def save_breaker_state():
                 "haltedAt":          halted_at,
                 "haltCause":         halt_cause,
                 "lastCountedClose":  last_counted_close,
+                # MONOTONIC EVENT HISTORY, round-tripped so it survives a restart. The
+                # fields above describe the breaker NOW and are cleared on release; these
+                # say whether it has been firing at all. Never reset.
+                "haltTripsStreak":    halt_trips_streak,
+                "haltTripsDailyLoss": halt_trips_daily_loss,
+                "haltReleases":       halt_releases,
+                "lastHaltAt":         last_halt_at,
+                "lastReleaseAt":      last_release_at,
                 "updatedAt":         utcnow_naive().isoformat() + "Z",
             }, state_file, indent=2)
     except Exception as exc:
@@ -582,6 +615,9 @@ def release_streak_halt_if_cooled():
     Returns True if a halt was released.
     """
     global trading_halted, halt_reason, halted_at, halt_cause, consecutive_losses
+    # Without these the `+= 1` below binds a LOCAL and raises UnboundLocalError at the
+    # exact moment the breaker fires - the one moment it must not.
+    global halt_releases, last_release_at, halt_trips_streak, halt_trips_daily_loss, last_halt_at
     remaining = halt_cooldown_remaining_seconds()
     if remaining is None or remaining > 0:
         return False
@@ -591,6 +627,8 @@ def release_streak_halt_if_cooled():
     halt_reason    = ""
     halted_at      = ""
     halt_cause     = ""
+    halt_releases += 1
+    last_release_at = utcnow_naive().isoformat() + "Z"
     log(f"⏱ CIRCUIT BREAKER RELEASED after {HALT_COOLDOWN_HOURS:.0f}h — streak {was} "
         f"-> {consecutive_losses} of {MAX_CONSECUTIVE_LOSSES}. Trading resumes ONE loss "
         "short of halting again; this is a cooldown, not a clean slate.", YELLOW + BOLD)
@@ -628,6 +666,9 @@ def release_streak_halt_on_operator_request():
     Returns True if a halt was released.
     """
     global trading_halted, halt_reason, halted_at, halt_cause, consecutive_losses
+    # Without these the `+= 1` below binds a LOCAL and raises UnboundLocalError at the
+    # exact moment the breaker fires - the one moment it must not.
+    global halt_releases, last_release_at, halt_trips_streak, halt_trips_daily_loss, last_halt_at
     if not trading_halted:
         return False
     if halt_cause != HALT_CAUSE_STREAK:
@@ -650,6 +691,7 @@ def release_streak_halt_on_operator_request():
 
 def check_circuit_breaker():
     global trading_halted, halt_reason, halted_at, halt_cause
+    global halt_trips_streak, halt_trips_daily_loss, last_halt_at
     # BEFORE the early return below, or the release is unreachable: the whole point is
     # that it applies while trading_halted is True.
     release_streak_halt_if_cooled()
@@ -669,6 +711,8 @@ def check_circuit_breaker():
         halt_reason = f"{consecutive_losses} consecutive losses — pausing"
         halted_at   = utcnow_naive().isoformat() + "Z"
         halt_cause  = HALT_CAUSE_STREAK
+        halt_trips_streak += 1
+        last_halt_at = halted_at
         cooldown = (f" — releases in {HALT_COOLDOWN_HOURS:.0f}h at streak "
                     f"{max(0, consecutive_losses - HALT_RELEASE_DECAY)}"
                     if HALT_COOLDOWN_HOURS > 0 else " — no auto-release, needs a human")
@@ -689,6 +733,8 @@ def check_circuit_breaker():
             halt_reason = f"Daily loss limit hit: -{loss_pct:.1f}% (limit {daily_loss_limit}%)"
             halted_at   = utcnow_naive().isoformat() + "Z"
             halt_cause  = HALT_CAUSE_DAILY_LOSS
+            halt_trips_daily_loss += 1
+            last_halt_at = halted_at
             log(f"🛑 CIRCUIT BREAKER: {halt_reason}", RED + BOLD)
             save_breaker_state()
             return True
@@ -2217,6 +2263,15 @@ def report_risk_status():
             "haltedAt":   halted_at or None,
             "haltCause":  halt_cause or None,
             "haltReleasesInSeconds": round(cooldown_left) if cooldown_left is not None else None,
+            # HAS THIS BREAKER BEEN FIRING? The four fields above describe its state NOW
+            # and are all cleared the moment a cooldown ends, so a breaker in a permanent
+            # trip-release cycle was indistinguishable, on every surface, from one that
+            # had never fired. These are monotonic and never reset.
+            "haltTripsStreak":    halt_trips_streak,
+            "haltTripsDailyLoss": halt_trips_daily_loss,
+            "haltReleases":       halt_releases,
+            "lastHaltAt":         last_halt_at or None,
+            "lastReleaseAt":      last_release_at or None,
             "config": {
                 # NOT the risk that sizes a normal trade. RISK_PERCENT is this bridge's
                 # FALLBACK, used by get_lot_size only when the server's risk engine
