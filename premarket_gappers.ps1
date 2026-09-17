@@ -102,7 +102,18 @@ $DefaultUniverse = @(
 
 function Get-Universe {
     if ($Symbols -and $Symbols.Count -gt 0) {
-        return ($Symbols | ForEach-Object { $_.Trim().ToUpper() } | Where-Object { $_ })
+        # SPLIT ON COMMAS TOO, and this is not belt-and-braces.
+        #
+        # Invoked as `powershell -File .\premarket_gappers.ps1 -Symbols NVDA,AMD,TSLA`
+        # PowerShell passes the whole list as ONE string - -File binds arguments as
+        # plain strings and does no array splitting. Measured: the scan then requested
+        # a symbol literally named "NVDA,AMD,TSLA,AAPL,SPY" and took a 404. Only the
+        # dot-sourced / -Command form binds a real array, and -File is how a scheduled
+        # task would ever call this.
+        return ($Symbols |
+            ForEach-Object { $_ -split ',' } |
+            ForEach-Object { $_.Trim().ToUpper() } |
+            Where-Object { $_ })
     }
     if ($FromHistory) {
         $dir = Join-Path $PSScriptRoot 'tasks\history_yahoo'
