@@ -125,6 +125,16 @@
     live endpoints, never asserted. <strong>Nothing here feeds the gate.</strong>
   </p>
 
+  <div class="card" id="charter-card">
+    <h2>PILOT-001 &mdash; the registered pilot</h2>
+    <p class="note">A pilot is a scoped experiment, not a dashboard. Its four measurements
+       were fixed <strong>before</strong> it started, which is the only thing that stops
+       anyone finding the metric afterwards that makes it look successful. Nothing in the
+       charter may be edited while it runs; a wrong criterion kills the pilot and starts
+       PILOT-002 with a new baseline.</p>
+    <div id="charter">loading&hellip;</div>
+  </div>
+
   <div class="card">
     <h2>Maturity &mdash; the six stages</h2>
     <p class="note">A stage is only <span class="pill ok">reached</span> if the stage
@@ -433,6 +443,83 @@
   }).catch(function (e) {
     document.getElementById("stages").innerHTML =
       '<p class="err">could not build: ' + esc(e && e.message ? e.message : e) + "</p>";
+  });
+
+  // ---------------- PILOT-001 CHARTER + LIVE PROGRESS ----------------------
+  // The charter is a STATIC file, read-only. Progress is computed live against it and
+  // never written back - a pilot whose criteria move as its data arrives is not a pilot.
+  Promise.all([
+    get("/dashboard/i40-pilot-001.json"), get("/api/checksystem"),
+    get("/api/strategy-settings"), get("/api/learning")
+  ]).then(function (r) {
+    var c = r[0], chk = r[1], cfg = r[2], learn = r[3];
+    if (c._err) {
+      document.getElementById("charter").innerHTML =
+        '<p class="err">charter unreadable: ' + esc(c._err) + "</p>";
+      return;
+    }
+    var target = 37, tierKey = "85%+";
+    var live = ((chk.calibration || []).filter(function (t) { return t.tier === tierKey; })[0]) || null;
+    var n = live ? Number(live.rTrades || live.trades || 0) : 0;
+    var meanR = live && live.avgRealizedR !== null && live.avgRealizedR !== undefined
+      ? Number(live.avgRealizedR) : null;
+    var base = c.baseline.tiers["85+"];
+    var pct = Math.max(0, Math.min(100, Math.round(n / target * 100)));
+
+    // Guardrails, checked LIVE. A breached guardrail ends the pilot - so it is shown
+    // as a hard state, not a note.
+    var gate = cfg && cfg.confidenceThreshold;
+    var recComplete = !!(learn.reconciliation && learn.reconciliation.complete);
+    var guards = [
+      { id: "no-gate-change", ok: gate === 70,
+        detail: "confidenceThreshold is " + (gate === undefined ? "unreadable" : gate) + ", must stay 70" },
+      { id: "accumulation", ok: recComplete,
+        detail: "trade record reconciles: " + (recComplete ? "yes" : "NO - the record does not balance") },
+      { id: "no-scoring-of-backfill",
+        ok: !!(learn.reconciliation && learn.reconciliation.unscoredByDesign !== undefined),
+        detail: "backfilled rows still accounted for separately: " +
+                ((learn.reconciliation && learn.reconciliation.unscoredByDesign !== undefined)
+                  ? learn.reconciliation.unscoredByDesign + " rows" : "NOT TRACKED") },
+      { id: "firing-set", ok: null,
+        detail: "diffed by hand before any signal-path change - not machine-checkable here, and saying otherwise would be worse than saying nothing" }
+    ];
+    var breached = guards.filter(function (g) { return g.ok === false; });
+
+    // The verdict is COMPUTED against the pre-registered criteria, never asserted.
+    var verdict, vclass;
+    if (breached.length)            { verdict = "HALTED - guardrail breached"; vclass = bad; }
+    else if (n < target)            { verdict = "RUNNING - " + n + " of " + target + " fills"; vclass = dim; }
+    else if (meanR !== null && meanR < 0) { verdict = "GO - effect holds at target n"; vclass = ok; }
+    else                            { verdict = "NO-GO - hypothesis not supported"; vclass = warn; }
+
+    document.getElementById("charter").innerHTML =
+      "<p><strong>" + esc(c.title) + "</strong> &nbsp; " + vclass(verdict) +
+      " &nbsp; " + dim("registered " + String(c.preRegisteredAt).slice(0, 10)) + "</p>" +
+      '<p class="note" style="margin:6px 0 12px">' + esc(c.hypothesis) + "</p>" +
+      "<table><tbody>" +
+      "<tr><td style='width:190px'><strong>Primary metric</strong></td><td>" +
+        esc(c.primaryOutcomeMetric.name) + "</td></tr>" +
+      "<tr><td><strong>Baseline</strong></td><td>n=" + base.n + ", meanR " +
+        num(base.meanR, 3) + ", sd " + num(base.sdR, 3) +
+        " &mdash; measured " + String(c.baseline.measuredAt).slice(0, 10) + "</td></tr>" +
+      "<tr><td><strong>Live now</strong></td><td>n=" + n + ", meanR " +
+        (meanR === null ? "—" : num(meanR, 3)) + "</td></tr>" +
+      "<tr><td><strong>Target</strong></td><td>" + esc(c.minimumViableTarget.value) +
+        '<div class="note" style="margin:2px 0 0">' + esc(c.minimumViableTarget.derivation) + "</div></td></tr>" +
+      "<tr><td><strong>Timebox</strong></td><td>" + c.timebox.projectedDaysToProof +
+        " days projected, hard stop " + c.timebox.hardStop +
+        '<div class="note" style="margin:2px 0 0">' + esc(c.timebox.hardStopSource) + "</div></td></tr>" +
+      "</tbody></table>" +
+      '<div class="bar" style="margin-top:12px"><i style="width:' + pct + '%"></i></div>' +
+      '<p class="note" style="margin:6px 0 14px">' + pct + "% of the sample needed to answer it.</p>" +
+      "<table><thead><tr><th>guardrail</th><th>state</th><th>detail</th></tr></thead><tbody>" +
+      guards.map(function (g) {
+        var st = g.ok === true ? ok("holding") : (g.ok === false ? bad("BREACHED") : dim("manual"));
+        return "<tr><td>" + esc(g.id) + "</td><td>" + st + "</td><td>" + esc(g.detail) + "</td></tr>";
+      }).join("") + "</tbody></table>" +
+      '<p class="note" style="margin-top:10px"><strong>Go:</strong> ' + esc(c.goNoGo.go) +
+      "<br><strong>No-go:</strong> " + esc(c.goNoGo.noGo) +
+      "<br><strong>Expired:</strong> " + esc(c.goNoGo.expired) + "</p>";
   });
 })();
 </script>
