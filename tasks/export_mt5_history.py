@@ -41,7 +41,28 @@ TIMEFRAMES = {
     "D1":  mt5.TIMEFRAME_D1,
 }
 
-YEARS_BACK = int(os.environ.get("EXPORT_YEARS", "5"))
+# 9, not 5. The default was SHORTER THAN THE HISTORY ALREADY ON DISK, which made the
+# hourly refresh unable to succeed even once.
+#
+# Measured 2026-09-17: the MT5-exported CSVs span 8.04 years (XAUUSD/BTCUSD/SP500
+# D1+H4+H1 all start 2018-09-03). A 5-year request therefore returns ~62% of what is
+# stored, and refresh_bars.cjs correctly calls that "a worse export, not new history"
+# and rolls back:
+#     XAUUSD_H4  757095 -> 471532      BTCUSD_H1 3868071 -> 2690647
+#     SP500_H1  2837871 -> 1764924     (5/8 = 62.5%, matching the observed ratio)
+# That ran hourly on BOTH boxes and rolled back every time. The guard was right every
+# time; the window was wrong. Bars had not refreshed at all, so the daily strategy
+# search kept re-testing identical history.
+#
+# 9 was chosen against MEASURED availability, not optimism: copy_rates_range returned
+# bars at >= 10 years back for all three symbols on this terminal, so 9 clears the
+# 8.04-year span with real margin while staying inside what the broker actually holds.
+# CHUNK_DAYS below already walks the period in 365-day pieces, so a longer span does
+# not approach the ~100k-bar per-call ceiling.
+#
+# If a symbol ever does hold less than the stored file, nothing is lost: refresh_bars.cjs
+# backs up first, verifies, and restores on any shrink.
+YEARS_BACK = int(os.environ.get("EXPORT_YEARS", "9"))
 
 # Days per request. 730 days of M15 (~69k bars) was measured to succeed on this
 # terminal while a single 5-year call failed, so stay well inside that.
