@@ -707,7 +707,20 @@ const CLAIMS = [
       + "engine: d1 78.4 vs 77.6, h4 19.0 vs 18.1, h1 21.4. Daily strongly up over "
       + "months, last three days pulling back, H4/H1 oversold inside that pullback — a "
       + "normal buy-the-dip shape on real data. The feed is sound.",
-    evidence: "Zero SPX fills in the journal's life against 4 XAUUSD and 1 BTCUSD. "
+    // DECLARED SAMPLE, added 2026-09-17. Without it nothing could flag this claim:
+    // recurationCheck only compares a claim against liveSample when the claim says what
+    // it was written on, so a claim with no declared sample is served to every agent as
+    // current and unqualified, under "do not re-litigate", forever.
+    //
+    // 0 is not a guess - it is the number this claim's own evidence line asserts, and
+    // measuredOn is 2026-08-18. Measured 2026-09-17: EIGHT SP500 closed fills.
+    sampleAtWriting: { spxClosedFills: 0 },
+    sampleFrom: "laptop (THEMIS) journal.json - SP500 rows, status CLOSED",
+    evidence: "CORRECTED 2026-09-17: this line read \"Zero SPX fills in the journal's "
+      + "life\" and there are now EIGHT SP500 closed fills (against 10 XAUUSD and 6 "
+      + "BTCUSD). The zero was true when measured on 2026-08-18 and is not true now; the "
+      + "cohort reasoning below is unaffected, but the premise it opens with was false "
+      + "and nothing in the register could say so until sampleAtWriting was declared. "
       + "Cause, from the MTF census (tasks/logs/mtf_walkforward.txt) and "
       + "cohort_reachability.cjs at gate 70: of SP500's 2,811 non-WAIT replay steps, "
       + "H4-only is 1,114 (40%) and is held at SPX_H4_ONLY_BLOCKED_FLOOR = 101 — and "
@@ -1249,6 +1262,9 @@ function liveSample() {
     // skipped by recurationCheck rather than read as drift - the same reason every
     // other counter above is initialised to null instead of being added on success.
     maxSetupClosedTrades: null,
+    // null, not 0, like every sibling here: a partial read must be SKIPPED by
+    // recurationCheck rather than read as "the count fell to zero", which is drift.
+    spxClosedFills: null,
     // The live engine CONFIG, for claims that declare configAtWriting. Nested under its
     // own key so it can never collide with a sampleAtWriting counter name.
     config: null,
@@ -1294,6 +1310,9 @@ function liveSample() {
     if (Array.isArray(journal)) {
       out.closedFills   = journal.filter(t => t && t.status === "CLOSED").length;
       out.openPositions = journal.filter(t => t && t.status === "OPEN").length;
+      // Publishes the counter spxonepath declares, so that claim can be checked at all.
+      out.spxClosedFills = journal.filter(
+        t => t && t.status === "CLOSED" && t.symbol === "SP500").length;
     }
   } catch (e) { /* fills stay null */ }
   try {
