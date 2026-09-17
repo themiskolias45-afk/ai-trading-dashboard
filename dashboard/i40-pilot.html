@@ -221,15 +221,33 @@
     });
 
     // 2 Connectivity - can data move between systems?
+    //
+    // THREE PEER STATES, NOT TWO. This read `peer && peer.reachable` and scored the VPS
+    // as UNREACHABLE, which cascaded the whole ladder to stage 1 of 6 and marked
+    // Resources degraded. The VPS is fine: it has NO PEER CONFIGURED. The fleet link is
+    // one-directional by design - the laptop polls the VPS, which has a public IP, and
+    // the VPS never polls back. server/index.js:13403 says so in its own words: "no
+    // PEER_SERVER_URL on this box, so the peer cannot be read from here".
+    //
+    // So: configured-and-reachable is healthy, configured-and-UNREACHABLE is a real
+    // fault, and not-configured is a single-box topology that is not a connectivity
+    // failure at all. Collapsing the third into the second made a correct system look
+    // broken - the same class of error as reading a field that means something
+    // different on each box.
     var bridgeLive = !!(chk.mt5 && (chk.mt5.connected === true ||
                     (chk.mt5.A && chk.mt5.A.connected === true)));
-    var peerOk = !!(fleet.peer && fleet.peer.reachable);
+    var peerConfigured = !!(fleet.peer && fleet.peer.configured !== false);
+    var peerReachable  = !!(fleet.peer && fleet.peer.reachable);
+    var peerFault = peerConfigured && !peerReachable;   // the only peer state that is a fault
+    var peerWords = !fleet.peer
+      ? "no peer configured on this box (one-directional fleet link, by design)"
+      : (peerReachable ? "peer box reachable" : "peer box CONFIGURED BUT UNREACHABLE");
     stages.push({
       name: "Connectivity", q: "Can data flow between systems?",
-      reached: bridgeLive && peerOk,
-      ev: "MT5 bridge " + (bridgeLive ? "reporting" : "SILENT") +
-          ", peer box " + (peerOk ? "reachable" : "UNREACHABLE") +
-          " — broker, engine and the second box are joined"
+      reached: bridgeLive && !peerFault,
+      ev: "MT5 bridge " + (bridgeLive ? "reporting" : "SILENT") + ", " + peerWords +
+          " — broker and engine are joined" +
+          (fleet.peer ? ", and so is the second box" : "")
     });
 
     // 3 Visibility - is there a reliable digital representation of current state?
@@ -390,8 +408,9 @@
     var areas = [
       { name: "Resources",
         what: "assets that generate or act on data",
-        ev: "two boxes, two MT5 terminals, bridge A live; the VPS is the one that trades continuously",
-        state: peerOk && bridgeLive ? ok("in place") : warn("degraded") },
+        ev: "two boxes, two MT5 terminals, bridge A live; the VPS is the one that trades continuously" +
+            (fleet.peer ? "" : " — this box reads no peer, which is the designed direction, not a gap"),
+        state: (bridgeLive && !peerFault) ? ok("in place") : warn("degraded") },
       { name: "Information systems",
         what: "applications, data, interfaces, analytics",
         ev: (hk.length || 0) + " harnesses, an evidence board of " + claims.length +
@@ -419,7 +438,12 @@
 
     // ---------------- FLEET -------------------------------------------------
     function box(b, label) {
-      if (!b) return "<tr><td>" + esc(label) + "</td><td colspan='4'>not reported</td></tr>";
+      // A peer that is not configured is NOT "unreachable" - saying so accuses a healthy
+      // box of being down. The row says which it is.
+      if (!b) return "<tr><td><strong>" + esc(label) + "</strong></td>" +
+                     "<td>" + dim("not configured") + "</td>" +
+                     "<td colspan='3' class='note'>this box reads no peer - the fleet link is " +
+                     "one-directional by design, so there is nothing here to be down</td></tr>";
       // The two boxes report the gate at DIFFERENT paths, measured 2026-09-17: peer
       // carries `gate`; thisBox has no `gate` key and carries it at
       // settings.confidenceThreshold. Reading b.gate for both showed the peer's number
