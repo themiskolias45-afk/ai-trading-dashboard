@@ -8281,9 +8281,36 @@ app.post("/api/trade-closed", (req, res) => {
     // historical trades would retroactively rewrite the learning record and the
     // calibration curve that weeks of real fills produced. These rows become
     // visible and countable; what the system has LEARNED is left untouched.
-    const duplicate = tradeJournal.find(t => t.ticket === ticket && t.account === account);
+    // Dedupe on TICKET ALONE, not ticket+account.
+    //
+    // `t.ticket === ticket && t.account === account` is character-for-character the
+    // first half of the :8144 lookup whose FAILURE is the only way to reach this
+    // line, so it could never once be true — a guard that cannot fire. Ticket alone
+    // can, and is the right key here: this branch only ever writes rows for the one
+    // account whose bridge posted them.
+    const duplicate = tradeJournal.find(t => t.ticket === ticket);
     if (duplicate) return res.json({ ok: true, duplicate: true });
-    tradeJournal.unshift({
+    // A backfill MUST carry an account and a real P&L.
+    //
+    // account: a row written with account null is a wildcard for the ticket-only
+    // fallback at :8145 (`!t.account`), which the comment there deliberately limits
+    // to entries predating that change. mt5_bridge sends `ACCOUNT_TAG or None` and
+    // ACCOUNT_TAG defaults to "" — so an untagged bridge would reopen that class.
+    //
+    // pnl: a row stored with pnl null is not `alreadyScored` at :8159, so the next
+    // re-post of the same ticket would land in the MATCHED branch and run
+    // updateLearning, db.updateLearning and persistDailyPerformance over a
+    // historical trade — exactly the irreversible scoring this branch exists to
+    // avoid. Refusing an unscorable backfill is what keeps that unreachable.
+    if (!account) {
+      console.warn(`[trade] BACKFILL #${ticket} refused — no account tag.`);
+      return res.status(400).json({ ok: false, error: "backfill requires account" });
+    }
+    if (typeof pnl !== "number" || !Number.isFinite(pnl)) {
+      console.warn(`[trade] BACKFILL #${ticket} refused — pnl is not a finite number.`);
+      return res.status(400).json({ ok: false, error: "backfill requires a numeric pnl" });
+    }
+    const backfillRow = {
       id: Date.now(),
       ticket,
       account: account ?? null,
@@ -8310,10 +8337,26 @@ app.post("/api/trade-closed", (req, res) => {
       // Identifies every row this branch wrote, so they can be filtered, counted
       // or reversed later without guessing which ones were backfilled.
       source: "ledger-backfill",
-    });
-    // NO 200-entry trim here, unlike the trade-opened path. Backfilled rows are
-    // historical, and trimming on insert could evict a real row to make room for
-    // one - which is the data loss this whole change exists to end.
+    };
+    // INSERT BY DATE, never unshift.
+    //
+    // tradeJournal is newest-first. That is an unwritten invariant and nothing
+    // re-sorts it: /api/journal slices without sorting, generateWeeklyReport takes
+    // slice(0, 20) as "Recent Trades", and get_time_context reads tradeJournal[0]
+    // directly. A backfilled row is HISTORICAL, so unshifting it put a 2026-09-04
+    // trade 4th-most-recent and pushed 4 real rows out of the default 20-row
+    // window — measured live, 2 out-of-order adjacent pairs where the non-backfilled
+    // rows had none. CLAUDE.md's own startup step reads /api/journal?limit=20 to
+    // compute daysSinceLastTrade, so that displaced window is load-bearing.
+    const backfillKey = backfillRow.openTime || backfillRow.closeTime || "";
+    const at = tradeJournal.findIndex(t => ((t.openTime || t.closeTime) || "") < backfillKey);
+    if (at === -1) tradeJournal.push(backfillRow);
+    else tradeJournal.splice(at, 0, backfillRow);
+    // NO 200-entry trim here, unlike the trade-opened path — this branch will not
+    // evict anything itself. It is NOT a guarantee the row survives: :8015 trims
+    // from the tail on the next trade-opened POST, and a date-ordered insert puts
+    // old rows nearer that tail. At 24 of 200 rows that is far off, but the trim is
+    // the system's eviction point and this comment must not imply otherwise.
     saveJournal();
     console.log(`[trade] BACKFILL #${ticket} (${req.body.model ?? "EXECUTOR"}) P&L ${pnl} acct ${account}`);
     return res.json({ ok: true, backfilled: true });
@@ -13329,6 +13372,20 @@ app.get("/api/strategy-board", (_, res) => {
       // hardcoded is still right - it is what let the row exist through the whole
       // disarmed period instead of appearing out of nowhere on the day it was armed.
       "BREAKDOWN",
+      // Added 2026-09-17 WITH the backfill branch that first writes them. These are
+      // not generateSignal setups — they are the EXECUTOR models (magics 20260902/3/4)
+      // whose closes the journal could never record until now, so they have never
+      // appeared on this board. /api/stats/by-setup already counts them (they are not
+      // in NON_SETUP_NAMES), so without this line one surface reports FVG_CONTINUATION
+      // and the other silently pretends it does not exist.
+      //
+      // FOURTH time this list has omitted a live setup after BUY_DIP, BREAKOUT and
+      // DIVERGENCE — which is exactly why engineSetupNames() exists. Note it will NOT
+      // catch these three: it scans for `setup = "NAME";` assignments in this file and
+      // these names arrive from the bridge as req.body.model, so the check that guards
+      // the other fourteen cannot guard these. They are listed here by hand, and that
+      // limitation is stated rather than assumed away.
+      "FVG_CONTINUATION", "TK_SWING_PULLBACK", "CRT_FVG",
     ];
     // Below this many closed fills a win rate is noise, not a verdict. Same floor
     // the learning engine uses to withhold a boost.

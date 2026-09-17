@@ -3282,7 +3282,13 @@ def backfill_executor_closes():
     if account_info is None:
         return
     login = account_info.login
-    tag = ACCOUNT_TAG or None
+    # "default", never None — matching every other post site in this file (:413,
+    # :881, :1131). ACCOUNT_TAG defaults to "" and start_mt5.bat documents untagged
+    # launch as supported, so None was reachable; a journal row with account null is
+    # a wildcard for the server's ticket-only fallback, which is a class of match
+    # that was deliberately closed. The server now refuses a backfill with no
+    # account, so this fails closed either way — this makes it not arise.
+    tag = ACCOUNT_TAG or "default"
 
     journal_keys = fetch_journal_keys()
     if journal_keys is None:
