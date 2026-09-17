@@ -459,8 +459,16 @@ const CLAIMS = [
     // above now describes the crossing instead of denying it, so pinning this at 3 would
     // keep raising a drift that has been dealt with. It stays declared, so the NEXT move
     // raises it again - which is the whole point of the field.
-    sampleAtWriting: { maxSetupClosedTrades: 5 },
-    sampleFrom: "server/learning.json setupStats, largest per-setup wins+losses",
+    // learningStatsFields added 2026-09-17. recurationCheck watches SAMPLES and CONFIG
+    // and never the CODE a claim describes, which is exactly how the sentence above went
+    // on asserting a missing field for nine days after it shipped. Declaring the field
+    // SET means the next addition to setupStats raises needsRecuration instead of
+    // leaving the prose to rot.
+    sampleAtWriting: {
+      maxSetupClosedTrades: 5,
+      learningStatsFields: "losses,rTrades,totalPnl,totalRealizedR,wins",
+    },
+    sampleFrom: "server/learning.json setupStats, largest per-setup wins+losses; plus the setupStats field set",
     // Built 2026-09-07: tasks/learning_boost_walkforward.cjs extracts getLearningBoost
     // and its four constants FROM server/index.js and walks three signals through the
     // one curve - win rate, R-weighted, and cash-weighted. First result inverted the
@@ -470,13 +478,18 @@ const CLAIMS = [
     // what it establishes is that the three disagree and in which direction.
     harness: "node tasks/learning_boost_walkforward.cjs  (--selftest for its 16 checks). "
       + "A worst-fold walk-forward arm in tasks/mtf_walkforward.cjs still does not exist. "
-      + "THE ONE ADDITIVE STEP THAT WOULD UNBLOCK THIS: record sumWinR/sumLossR per setup "
-      + "in learning.setupStats. updateLearning writes {wins, losses, totalPnl} and "
-      + "DISCARDS the risk denominator it already has in hand — entry, sl and volume are "
-      + "all on the journal row, so R is reconstructible for the whole history and simply "
-      + "is not aggregated. Two fields and no reader: no gate, no threshold, no boost, no "
-      + "firing set. It is what makes sigma_b measurable, and sigma_b is what decides "
-      + "whether win rate or R-expectancy is the better estimator here.",
+      + "RE-CURATED 2026-09-17. This read \"THE ONE ADDITIVE STEP THAT WOULD UNBLOCK "
+      + "THIS: record sumWinR/sumLossR per setup ... updateLearning writes {wins, losses, "
+      + "totalPnl} and DISCARDS the risk denominator\". That shipped on 2026-09-08 and "
+      + "the sentence was false for nine days: updateLearning now writes {wins, losses, "
+      + "totalPnl, totalRealizedR, rTrades} (server/index.js:1313-1314), so NET R per "
+      + "setup is aggregated and published. What is still NOT recorded is the WIN/LOSS "
+      + "SPLIT (sumWinR / sumLossR). And nothing is blocked on it today: "
+      + "tasks/learning_boost_walkforward.cjs:122-123 already reconstructs both sums from "
+      + "journal.json on every run. So this is not \"the one additive step that would "
+      + "unblock\" anything - sigma_b is blocked on SETUPS WITH n>1, of which there are "
+      + "two. Recording the split would still be two fields with no reader: no gate, no "
+      + "threshold, no boost, no firing set.",
     feedsTheGate: false,
   },
   {
@@ -1262,6 +1275,9 @@ function liveSample() {
     // skipped by recurationCheck rather than read as drift - the same reason every
     // other counter above is initialised to null instead of being added on success.
     maxSetupClosedTrades: null,
+    // The setupStats FIELD SET, so a claim describing the shape of that record can flag
+    // itself when the shape changes. null on a partial read, like every sibling.
+    learningStatsFields: null,
     // null, not 0, like every sibling here: a partial read must be SKIPPED by
     // recurationCheck rather than read as "the count fell to zero", which is drift.
     spxClosedFills: null,
@@ -1332,6 +1348,11 @@ function liveSample() {
       .map(s => (s?.wins || 0) + (s?.losses || 0))
       .filter(Number.isFinite);
     if (totals.length) out.maxSetupClosedTrades = Math.max(...totals);
+    const fieldSet = new Set();
+    for (const entry of Object.values(learning?.setupStats || {})) {
+      if (entry && typeof entry === "object") for (const k of Object.keys(entry)) fieldSet.add(k);
+    }
+    if (fieldSet.size) out.learningStatsFields = [...fieldSet].sort().join(",");
   } catch (e) { /* sessions stay null */ }
   // The rejection ledger, which is what the fastest-moving claims here actually quote.
   // Without this they declared a sample nothing could check: MIN_RR's evidence said "86
