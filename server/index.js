@@ -9103,6 +9103,28 @@ app.get("/api/checksystem", (_, res) => {
     risk:        riskStatus,
     mode:        { modeOverride: null },
     performance: { trades: closed.length, wins, winRate: closed.length > 0 ? parseFloat((wins / closed.length * 100).toFixed(1)) : null, totalPnl: parseFloat(totalPnl.toFixed(2)), recentLosses },
+    // OPEN BOOK vs THE CAP. Without this, a book at maxConcurrentPositions reads as a
+    // fully-green system with an at-gate signal that mysteriously never fires - the cap
+    // is enforced by the bridge and was invisible on the surface that answers "is
+    // anything wrong".
+    //
+    // `basis` is not decoration and must not be dropped. This counts the SERVER's
+    // journal rows; the bridge enforces the cap from count_open_positions() against MT5
+    // directly. Those two views can legitimately disagree - a manual close, or a
+    // broker-side stop-out not yet ingested - and an unlabelled count that silently
+    // differs from the number the cap is actually enforced on would be worse than no
+    // count at all.
+    openPositions: (() => {
+      const count = tradeJournal.filter(t => t.status === "OPEN").length;
+      const limit = strategySettings.maxConcurrentPositions;
+      return {
+        count,
+        limit,
+        atCapacity: Number.isFinite(limit) ? count >= limit : null,
+        basis: "server journal rows with status OPEN — the bridge enforces the cap from "
+             + "count_open_positions() against MT5 directly",
+      };
+    })(),
     learning:    {
       sessionCount:  learning.sessionCount,
       setupsTracked: Object.keys(learning.setupStats).length,
