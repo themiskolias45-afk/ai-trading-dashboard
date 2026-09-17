@@ -2254,6 +2254,20 @@ def report_risk_status():
         requests.post(f"{SERVER_URL}/api/risk-status", json={
             "dailyPnl": round(daily_pnl, 2),
             "consecutiveLosses": consecutive_losses,
+            # WHICH DAY THIS dailyPnl BELONGS TO, and when it last moved.
+            #
+            # dailyPnl was published with no day scope and no as-of stamp, so a figure
+            # last moved days ago and carried through several UTC midnights was
+            # byte-identical on the wire to a loss taken today. Measured 2026-09-17:
+            # breaker_state_A.json held day 2026-09-15 / dailyPnl -151.97 while the live
+            # surface served 0, and nothing on either said which day was meant.
+            #
+            # Both values are existing bridge state already written to disk - nothing new
+            # is computed and no call is added. Observations, so deliberately OUTSIDE
+            # config{}. No server edit is needed: POST /api/risk-status merges the body
+            # into riskStatusByAccount and recomputeRiskStatus passes it through verbatim.
+            "breakerDay":       breaker_day(),
+            "lastCountedClose": last_counted_close or None,
             "halted": trading_halted or remote_halted,
             "haltReason": halt_reason or remote_halt_reason,
             "account": ACCOUNT_TAG or "default",
@@ -3198,6 +3212,20 @@ def track_closed_positions():
             requests.post(f"{SERVER_URL}/api/risk-status", json={
                 "dailyPnl": round(daily_pnl, 2),
                 "consecutiveLosses": consecutive_losses,
+                # WHICH DAY THIS dailyPnl BELONGS TO, and when it last moved.
+                #
+                # dailyPnl was published with no day scope and no as-of stamp, so a figure
+                # last moved days ago and carried through several UTC midnights was
+                # byte-identical on the wire to a loss taken today. Measured 2026-09-17:
+                # breaker_state_A.json held day 2026-09-15 / dailyPnl -151.97 while the live
+                # surface served 0, and nothing on either said which day was meant.
+                #
+                # Both values are existing bridge state already written to disk - nothing new
+                # is computed and no call is added. Observations, so deliberately OUTSIDE
+                # config{}. No server edit is needed: POST /api/risk-status merges the body
+                # into riskStatusByAccount and recomputeRiskStatus passes it through verbatim.
+                "breakerDay":       breaker_day(),
+                "lastCountedClose": last_counted_close or None,
                 "halted": trading_halted,
                 "haltReason": halt_reason,
                 "account": ACCOUNT_TAG or "default",
