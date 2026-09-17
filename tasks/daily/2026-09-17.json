@@ -1,29 +1,34 @@
 {
-  "date": "2026-09-17",
-  "entries": [
-    {
-      "ts": "2026-09-17T03:28:59.513999+00:00",
-      "tag": "PLAN",
-      "text": "Daily Plan 2026-09-17 (levels: confluence-zones): |   BTC WAIT | R1 76922.85 S1 76266.55 |   GOLD WAIT | R1 4340.78 S1 4302.83 |   SPX WAIT | R1 7563.95 S1 7550 |   MACRO VIX 17.71 — NORMAL |   MACRO DXY 100.33 RISING (+1.25% 5d) — a rising dollar is a headwind for Gold, a falling one a tailwind |   ⚠ 3 high-impact events today — check calendar"
-    },
-    {
-      "ts": "2026-09-17T03:59:49.394297+00:00",
-      "tag": "EOD",
-      "text": "EOD 2026-09-17: No trades today — rest day."
-    },
-    {
-      "ts": "2026-09-17T04:21:42.842835+00:00",
-      "tag": "FREEZE-LOG",
-      "text": "ATOMIC_ANALYST_V84.mq5 is a from-scratch reproduction of the closed-source MT4 Atomic Analyst product (MQL4/Indicators/Market/Atomic Analyst.ex4, 432000 bytes, no source; MQL5/Indicators/Market/ is empty), not a port - it cannot agree with MT4 by construction. It also has tie-break/consensus bugs at ATOMIC_ANALYST_V84.mq5:867-878: a 3-3 consensus tie resolves BUY via 'bullPct >= bearPct', the 'ONLY' guard counts WAIT timeframes as agreement, and confidence is max(bullPct,bearPct) so a coin flip reports 42.9%. Measured live 2026-09-17 04:14Z: BTCUSD shipped verdict 'BUY ONLY' conf 42.9 sentiment UNDECIDED finalConsensus WAIT with 1 BUY / 8 WAIT across nine timeframes and a full ticket. feedsTheGate:false, so it affects no trade. DEFERRED to post-freeze. Not patched."
-    },
-    {
-      "ts": "2026-09-17T04:21:42.842835+00:00",
-      "tag": "FREEZE-LOG",
-      "text": "PreToolUse hooks resolve their script path relative to CWD - every hook in .claude/settings.json uses \"& (Join-Path (Get-Item .).FullName 'tasks/hooks/<name>.ps1')\". Run from a subfolder (hit today in tasks\\ea_source) the path becomes tasks/ea_source/tasks/hooks/... which does not exist, so git-safety and agent-audit failed silently - safety hooks were effectively disabled in that subfolder. Measured breadth: all 7 hooks share the pattern (git-safety, pre-edit-check, agent-audit, post-edit-check, startup-check, daily-runner, session-stop at settings.json:32,43,52,63,74,80,92), not just the two named. Recurring risk. DEFERRED to post-freeze. Not fixed."
-    }
-  ],
-  "signals": [],
-  "trades": [],
-  "created_at": "2026-09-17T03:28:59.513999+00:00",
-  "updated_at": "2026-09-17T04:21:42.842835+00:00"
+ "date": "2026-09-17",
+ "entries": [
+  {
+   "ts": "2026-09-17T03:28:59.513999+00:00",
+   "tag": "PLAN",
+   "text": "Daily Plan 2026-09-17 (levels: confluence-zones): |   BTC WAIT | R1 76922.85 S1 76266.55 |   GOLD WAIT | R1 4340.78 S1 4302.83 |   SPX WAIT | R1 7563.95 S1 7550 |   MACRO VIX 17.71 — NORMAL |   MACRO DXY 100.33 RISING (+1.25% 5d) — a rising dollar is a headwind for Gold, a falling one a tailwind |   ⚠ 3 high-impact events today — check calendar"
+  },
+  {
+   "ts": "2026-09-17T03:59:49.394297+00:00",
+   "tag": "EOD",
+   "text": "EOD 2026-09-17: No trades today — rest day."
+  },
+  {
+   "ts": "2026-09-17T04:21:42.842835+00:00",
+   "tag": "FREEZE-LOG",
+   "text": "ATOMIC_ANALYST_V84.mq5 is a from-scratch reproduction of the closed-source MT4 Atomic Analyst product (MQL4/Indicators/Market/Atomic Analyst.ex4, 432000 bytes, no source; MQL5/Indicators/Market/ is empty), not a port - it cannot agree with MT4 by construction. It also has tie-break/consensus bugs at ATOMIC_ANALYST_V84.mq5:867-878: a 3-3 consensus tie resolves BUY via 'bullPct >= bearPct', the 'ONLY' guard counts WAIT timeframes as agreement, and confidence is max(bullPct,bearPct) so a coin flip reports 42.9%. Measured live 2026-09-17 04:14Z: BTCUSD shipped verdict 'BUY ONLY' conf 42.9 sentiment UNDECIDED finalConsensus WAIT with 1 BUY / 8 WAIT across nine timeframes and a full ticket. feedsTheGate:false, so it affects no trade. DEFERRED to post-freeze. Not patched."
+  },
+  {
+   "ts": "2026-09-17T04:21:42.842835+00:00",
+   "tag": "FREEZE-LOG",
+   "text": "PreToolUse hooks resolve their script path relative to CWD - every hook in .claude/settings.json uses \"& (Join-Path (Get-Item .).FullName 'tasks/hooks/<name>.ps1')\". Run from a subfolder (hit today in tasks\\ea_source) the path becomes tasks/ea_source/tasks/hooks/... which does not exist, so git-safety and agent-audit failed silently - safety hooks were effectively disabled in that subfolder. Measured breadth: all 7 hooks share the pattern (git-safety, pre-edit-check, agent-audit, post-edit-check, startup-check, daily-runner, session-stop at settings.json:32,43,52,63,74,80,92), not just the two named. Recurring risk. DEFERRED to post-freeze. Not fixed."
+  },
+  {
+   "ts": "2026-09-17T18:35:29.107059+00:00",
+   "tag": "FREEZE-LOG",
+   "text": "TV Daily Plan fails on a loop (task result 5 = bot exit 1). Root cause is NOT the 'Volatility Trend Breakout' Pine script left in the editor - that jammed exactly one run (18:56 UTC 09-17) and cleared itself. The live defect: after a successful save the bot must REPLACE the chart's plan study, and removing the currently-bound study fails with 'no Remove control appeared', while sibling stale studies remove fine (5 then 6 removed in consecutive runs). Every run mints a new stamp so every run needs a replace, so every run fails. Feedback loop: each failed run leaves another study on the chart, lengthening the Object tree the removal must reach into. Same trap class as the off-screen-row fix of 2026-08-30 (JS_SCROLL_TEXT_INTO_VIEW, tradingview_bot.py:1209 comment) - recurring, not identical. WORKAROUND THAT WORKS, no code change: 'python tradingview_bot.py repoint all' rebuilds the study against the current saved script and exits 0; verified twice today, charts left carrying 'JARVIS Daily Plan 09-17 19:29' on BTC/GOLD/SPX. It buys clean charts but does not stop the next scheduled run from failing. A real fix means editing the removal path in tradingview_bot.py = a FOURTH repair, which the surface freeze forbids. LOGGED, NOT FIXED. Scheduled task left DISABLED pending the user's call - note that is a subtraction and needs his decision either way."
+  }
+ ],
+ "signals": [],
+ "trades": [],
+ "created_at": "2026-09-17T03:28:59.513999+00:00",
+ "updated_at": "2026-09-17T18:35:29.107059+00:00"
 }
