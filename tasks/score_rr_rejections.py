@@ -112,8 +112,15 @@ class BrokerClockUnavailable(RuntimeError):
 # Seconds per bar, and how many bars a setup gets to resolve. A D1 mean-reversion
 # short that has not touched either level in a month was not the trade the setup
 # described, so it is marked to market rather than left open forever.
-BAR_SECONDS = {"D1": 86400, "H4": 14400, "H1": 3600}
-HORIZON_BARS = {"D1": 20, "H4": 30, "H1": 48}
+# M15 added 2026-09-17. Its absence silently discarded every M15 rejection the engine
+# has emitted since 2026-08-31: the guard below routes an unknown timeframe to
+# outcome UNSCORABLE / cause UNKNOWN_TIMEFRAME_OR_TS, and measured on this box that
+# was 170 of 170 M15 rows - 100%, every one, on the one setup whose open question is
+# blocked on sample. Purely additive: no existing entry changes.
+BAR_SECONDS = {"D1": 86400, "H4": 14400, "H1": 3600, "M15": 900}
+# 48 M15 bars is 12 hours - the same horizon H1 gets in bars, a shorter one in clock
+# time, which suits a setup that resolves inside a session.
+HORIZON_BARS = {"D1": 20, "H4": 30, "H1": 48, "M15": 48}
 
 # Same cost basis the rest of the project measures against (see mtf_walkforward.cjs).
 COST_R = 0.05
@@ -330,6 +337,9 @@ class Mt5BarSource:
             "D1": mt5.TIMEFRAME_D1,
             "H4": mt5.TIMEFRAME_H4,
             "H1": mt5.TIMEFRAME_H1,
+            # Without this the two maps above would admit an M15 row and then fail to
+            # fetch bars for it, which is a worse failure than skipping it cleanly.
+            "M15": mt5.TIMEFRAME_M15,
         }
         terminal_path = os.environ.get("MT5_TERMINAL_PATH", "")
         initialised = mt5.initialize(terminal_path) if terminal_path else mt5.initialize()
