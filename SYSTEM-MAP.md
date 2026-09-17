@@ -1,5 +1,8 @@
 # JARVIS × SmartEntry Pro — System Architecture Map
 *Audited 2026-08-29 | 445 files scanned | Overall: 51% complete*
+*Spot-checked 2026-09-17 - see the dated notes below. The headline 51% is NOT
+re-audited and should be read as of 2026-08-29; only the items carrying a
+2026-09-17 note were re-measured.*
 *RE-AUDITED 2026-09-02: SEVEN claims below were FALSE — built, but still listed as
 missing, including the #1 CRITICAL item. Corrections are marked `CORRECTED 2026-09-02`
 with the file that disproves them. **Verify a Missing item still is missing before
@@ -192,11 +195,11 @@ zero results for months. Semantic search fixes this permanently.
 | ~~01~~ | ~~**RAG / Semantic Memory**~~ — **DONE 2026-09-02.** ChromaDB + MiniLM, 6 sources, and boot-time injection via `boot_context.cjs` | S–04 | ~~CRITICAL~~ |
 | 02 | **Autonomous Pipeline** — /discover --implement auto-triggered when score ≥ 12, LOW risk | S–03/05 | CRITICAL |
 | ~~03~~ | ~~**Continuous Signal Alert Daemon**~~ — **DONE.** Six scheduled monitors; Band, Plan, MACD Cross, CRT/FVG/TK runners | S–02 | ~~HIGH~~ |
-| 04 | **Agent Memory Sharing** — PARTLY DONE: `tasks/ai_brief.md` is shared and nightly. Agents still hold no state BETWEEN spawns | S–05 | HIGH |
+| 04 | **Agent Memory Sharing** — **RE-MEASURED 2026-09-17: agents DO now hold state between spawns.** The blocker was freeze repair #1, completed `7f04f42`: `.mcp.json` declared smartentry as a cwd-relative path that could not resolve in the agent clean room, so 6 of 7 MCP servers loaded and the memory/trading ones were unusable. `run_agent.bat` now builds a clean-room config with the path resolved from PROJ at runtime. EVIDENCE, not inference: the shared graph holds **28 `review-finding` entities**, three written by the code-reviewer agent on 2026-09-17 — two of them findings about that same day's backfill code, which it then reported back. The tester agent, which had failed this check 5 consecutive runs, reported "B1 resolved — smartentry MCP is reachable". STILL OPEN: `tasks/ai_brief.md` remains the only *curated* cross-agent briefing; the graph is shared but nothing summarises it for the next spawn | S–05 | HIGH |
 | ~~05~~ | ~~**Calibration Drift Auto-Alert**~~ — **DONE.** `tasks/calibration_drift_alert.py`, nightly in auto_daily.bat | S–02 | ~~HIGH~~ |
 | 06 | **Economic Calendar Auto-Context** — NFP/FOMC/CPI injected into every signal analysis | S–03 | HIGH |
 | 07 | **Memory Schema Enforcement** — structured entity types prevent silent recall failures | S–01 | HIGH |
-| 08 | **CI/CD for VPS Deploy** — git pull + parity check automated; one command ships both boxes | S–03/05 | MEDIUM |
+| 08 | **CI/CD for VPS Deploy** — STILL OPEN, and 2026-09-17 showed both the cost and the method. Eleven fixes were ported by hand: ten via `git diff <commit>^ <commit>` -> `git apply --check` on the VPS (10 applied, 0 failed), one by anchored block because a deliberate NUL separator in `decisions.cjs` `keyOf()` makes git treat that file as binary forever. It worked and drift fell 7 -> 4 with engineDrift 0 — but it took an hour and a wholesale `scp` of index.js has crashed that box before, so the manual route is not optional today. The `git apply --check` gate is the piece worth automating: it reports whether a patch applies and writes nothing if it does not | S–03/05 | MEDIUM |
 | ~~09~~ | ~~**Position Partial Memory Persistence**~~ — **DONE.** `mt5_bridge.py:231` persists across restarts | S–03 | ~~MEDIUM~~ |
 | 10 | **/halt Kill-Switch** — PARTLY DONE: `.claude/commands/halt.md` + dashboard control. It reached 2 of 5 order paths until `75bda76` | S–01/05 | MEDIUM |
 
