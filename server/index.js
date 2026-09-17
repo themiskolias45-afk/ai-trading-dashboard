@@ -8254,6 +8254,75 @@ app.post("/api/trade-closed", (req, res) => {
       closed_at: trade.closeTime,
     });
     persistDailyPerformance(trade.closeTime);
+  } else if (req.body.backfill === true) {
+    // ── BACKFILL: a close for a trade this journal never opened ──────────────
+    //
+    // Measured 2026-09-17 against MT5 on both boxes: 11 closed system trades
+    // existed in MT5 and in NO journal - 4 on account 25446287, 7 on 11581419,
+    // -204.30 combined. Every one carried an EXECUTOR magic (20260902/3/4).
+    //
+    // WHY THEY COULD NEVER ARRIVE. mt5_bridge.py filters every position path to
+    // MAGIC_NUMBER = 20250101 (:102, enforced at :1242 :1387 :1571 :2518 :2735
+    // :2826 :3080), so an executor fill never gets a trade-opened POST and never
+    // gets an OPEN row. reconcile_open_trades (:3288) then starts from
+    // fetch_open_journal_entries() and returns immediately when that is empty -
+    // its recovery domain IS the set of rows already open, so a trade with no
+    // OPEN row sits outside it permanently, however many sweeps run.
+    //
+    // And this handler used to end at the `}` above: an unmatched close recorded
+    // nothing, logged "[trade] Closed:" as though it had, and returned ok:true.
+    // A backfill would have been swallowed while reporting success.
+    //
+    // APPEND-ONLY. It adds a row and never reads, rewrites, reorders or removes
+    // an existing one.
+    //
+    // DELIBERATELY DOES NOT SCORE. updateLearning(), db.updateLearning() and
+    // persistDailyPerformance() are irreversible increments; running them over
+    // historical trades would retroactively rewrite the learning record and the
+    // calibration curve that weeks of real fills produced. These rows become
+    // visible and countable; what the system has LEARNED is left untouched.
+    const duplicate = tradeJournal.find(t => t.ticket === ticket && t.account === account);
+    if (duplicate) return res.json({ ok: true, duplicate: true });
+    tradeJournal.unshift({
+      id: Date.now(),
+      ticket,
+      account: account ?? null,
+      symbol:    req.body.symbol    ?? null,
+      direction: req.body.direction ?? null,
+      entry:     req.body.entry     ?? null,
+      // The executors do not report the stop and target they used, and inventing
+      // them would put two numbers into the journal that no fill ever carried.
+      sl: null,
+      tp: null,
+      volume:    req.body.volume    ?? null,
+      openTime:  req.body.openTime  ?? null,
+      closeTime: closeTime ?? new Date().toISOString(),
+      closePrice: closePrice ?? null,
+      pnl: pnl ?? null,
+      status: "CLOSED",
+      // The executor model name, so these rows are attributable rather than
+      // landing in a bucket that describes no strategy.
+      setup: req.body.model ?? "EXECUTOR",
+      setupTimeframe: null,
+      confidence: null,
+      strength: null,
+      magic: req.body.magic ?? null,
+      // Identifies every row this branch wrote, so they can be filtered, counted
+      // or reversed later without guessing which ones were backfilled.
+      source: "ledger-backfill",
+    });
+    // NO 200-entry trim here, unlike the trade-opened path. Backfilled rows are
+    // historical, and trimming on insert could evict a real row to make room for
+    // one - which is the data loss this whole change exists to end.
+    saveJournal();
+    console.log(`[trade] BACKFILL #${ticket} (${req.body.model ?? "EXECUTOR"}) P&L ${pnl} acct ${account}`);
+    return res.json({ ok: true, backfilled: true });
+  } else {
+    // Was silent, and returned ok:true. A close that matches nothing must say so
+    // -- a writer that reports success having written nothing is how 11 trades
+    // stayed lost.
+    console.warn(`[trade] #${ticket} closed but NO journal row matched (account ${account}) — not recorded.`);
+    return res.status(404).json({ ok: false, error: "no matching journal entry" });
   }
   console.log(`[trade] Closed: #${ticket}  P&L $${pnl}`);
   res.json({ ok: true });
