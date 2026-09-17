@@ -8851,7 +8851,26 @@ app.get("/api/checksystem", (_, res) => {
   const closed = tradeJournal.filter(t => t.status === "CLOSED" && t.pnl !== null);
   const wins = closed.filter(t => t.pnl > 0).length;
   const totalPnl = closed.reduce((s, t) => s + (t.pnl ?? 0), 0);
-  const recentLosses = closed.slice(0, 5).filter(t => t.pnl < 0).length;
+  // SLICED IN CLOSE ORDER, not journal order.
+  //
+  // tradeJournal is newest-first by OPEN time - trade-opened unshifts, and the backfill
+  // branch inserts by openTime to preserve exactly that. So slice(0,5) returns the five
+  // most recently OPENED trades and this field called them "recent" losses.
+  //
+  // Measured 2026-09-17 on the live journal: open-order gives 4, close-order gives 5,
+  // and the two slices differ in 2 of their 5 rows. The true record is five losses in
+  // the last five closes; the field under-reported it.
+  //
+  // The `|| openTime` fallback keeps a row with no closeTime sortable instead of letting
+  // NaN scatter it. 0 of 24 closed rows need it today, so it changes nothing now and
+  // cannot bite later.
+  //
+  // REPORTING ONLY: grep for recentLosses returns the definition here and one emission.
+  // No consumer in server/, tasks/ or mt5_bridge.py reads it. The circuit breaker uses
+  // its own counter (risk.consecutiveLosses, persisted by the bridge) and never this.
+  const byCloseTime = [...closed].sort(
+    (a, b) => new Date(b.closeTime || b.openTime) - new Date(a.closeTime || a.openTime));
+  const recentLosses = byCloseTime.slice(0, 5).filter(t => t.pnl < 0).length;
 
   // The "Equity curve health" block that stood here is gone. It accumulated a local
   // `equity` in a loop whose two branches were the same statement —
@@ -9941,7 +9960,18 @@ function buildSystemContext() {
   } else lines.push("No completed trades yet — nothing learned.");
 
   lines.push("", "═══ RECENT CLOSED TRADES ═══");
-  const closed = tradeJournal.filter(t => t.status === "CLOSED" || t.pnl != null).slice(0, 5);
+  // Same close-order sort as /api/checksystem, and for the same reason: the journal is
+  // newest-first by OPEN time, so a bare slice under a heading that says "RECENT CLOSED
+  // TRADES" listed the most recently opened ones.
+  //
+  // RECORDED, NOT CHANGED HERE: this predicate is `||` where /api/checksystem uses `&&`,
+  // so an OPEN row carrying a floating pnl would be listed as closed. No live effect -
+  // the journal holds 0 non-CLOSED rows - so it is noted rather than bundled into a
+  // change about ordering.
+  const closed = tradeJournal
+    .filter(t => t.status === "CLOSED" || t.pnl != null)
+    .sort((a, b) => new Date(b.closeTime || b.openTime) - new Date(a.closeTime || a.openTime))
+    .slice(0, 5);
   if (closed.length) {
     for (const t of closed) lines.push(`${(t.symbol||"?").toUpperCase()} ${t.direction || t.dir || "?"} ${t.setup || ""} — P&L ${t.pnl}`);
   } else lines.push("No closed trades yet.");
