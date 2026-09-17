@@ -238,15 +238,29 @@
 
     // 4 Transparency - can it say WHY, not just what?
     var claims = (board.claims || []);
-    var withVerdict = claims.filter(function (c) { return c.verdict; }).length;
+    // THE FIELD IS `status`, NOT `verdict`. Measured 2026-09-17: every claim carries
+    // status ("MEASURED - ROBUST", "MEASURED - NO EDGE", "CANDIDATE - NEEDS
+    // WALK-FORWARD", "UNMEASURED", "MEASURED - INCONCLUSIVE") and NONE carries a
+    // `verdict` key. Reading c.verdict returned undefined for all 22, scored
+    // Transparency as NOT REACHED, and the cascade then blocked stages 5 and 6 - the
+    // page under-reported this system by three stages on a typo. A false negative on a
+    // maturity page is as damaging as a false positive.
+    //
+    // The test is also stricter than "has a status": a claim that says UNMEASURED does
+    // not demonstrate transparency, it demonstrates the opposite. Only claims actually
+    // MEASURED count toward answering "why is this happening".
+    var measured = claims.filter(function (c) {
+      return c.status && String(c.status).toUpperCase().indexOf("MEASURED") === 0;
+    });
     var drifted = claims.filter(function (c) { return c.staleness && c.staleness.needsRecuration; });
     stages.push({
       name: "Transparency", q: "Why are things happening?",
-      reached: claims.length > 0 && withVerdict > 0,
+      reached: measured.length > 0,
       ev: claims.length
-        ? (claims.length + " evidence claims carry a verdict and a falsifier; " +
-           drifted.length + " are flagged for recuration because the sample or config " +
-           "beneath them moved")
+        ? (measured.length + " of " + claims.length + " evidence claims are MEASURED " +
+           "(the rest are unmeasured or awaiting a walk-forward), each carrying its own " +
+           "caveat and what would change the answer; " + drifted.length +
+           " are flagged for recuration because the sample or config beneath them moved")
         : "no evidence board"
     });
 
@@ -311,10 +325,22 @@
     // transcended, however good the paper looks. Real fills are counted from the
     // journal, which is the only record of money that actually moved.
     var rows = (jrn.journal || jrn.trades || []);
+    // WAIT / NONE / UNKNOWN are NOT models. They are the engine's way of saying "there
+    // was no setup", and server/index.js:1241 keeps exactly this set as NON_SETUP_NAMES
+    // for the same reason. Listing WAIT as a pilot that "transcended to real money"
+    // invents a strategy out of a null - it was a fill whose setup name never arrived.
+    var NON_SETUP = { WAIT: 1, NONE: 1, UNKNOWN: 1 };
     var byModel = {};
+    var unnamedFills = 0, unnamedPnl = 0;
     rows.forEach(function (t) {
       if (!t || t.status !== "CLOSED") return;
-      var name = t.setup || "(unnamed)";
+      var raw = String(t.setup || "").trim().toUpperCase();
+      if (!raw || NON_SETUP[raw]) {
+        unnamedFills += 1;
+        unnamedPnl += (typeof t.pnl === "number" ? t.pnl : 0);
+        return;
+      }
+      var name = t.setup;
       if (!byModel[name]) byModel[name] = { n: 0, pnl: 0, backfilled: 0 };
       byModel[name].n += 1;
       byModel[name].pnl += (typeof t.pnl === "number" ? t.pnl : 0);
@@ -341,7 +367,13 @@
          "<th>pilot status</th></tr></thead><tbody>" + pilotRows + "</tbody></table>" +
          '<p class="note" style="margin-top:10px">Transcended means it has taken real ' +
          "fills, not that it is profitable. Those are different questions and the second " +
-         "one is answered on Performance and by the walk-forward harnesses, not here.</p>")
+         "one is answered on Performance and by the walk-forward harnesses, not here." +
+         (unnamedFills
+           ? " " + unnamedFills + " closed fill(s) carrying no real setup name (" +
+             (unnamedPnl >= 0 ? "+" : "") + unnamedPnl.toFixed(2) +
+             ") are excluded above rather than listed as a strategy — WAIT means the " +
+             "setup never arrived, not that a model called WAIT traded."
+           : "") + "</p>")
       : '<p class="note">no closed fills recorded, so nothing has transcended yet.</p>';
 
     // ---------------- STRUCTURAL AREAS --------------------------------------
