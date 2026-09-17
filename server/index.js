@@ -15033,7 +15033,7 @@ function recordServerStart() {
   }
 }
 
-app.listen(PORT, async () => {
+const httpServer = app.listen(PORT, async () => {
   recordServerStart();
   console.log(`✅ SmartEntry Pro v12 on port ${PORT} — started ${new Date().toISOString()} pid ${process.pid}`);
 
@@ -15100,4 +15100,32 @@ app.listen(PORT, async () => {
   });
   startPeerSilenceWatch();
   console.log('[BOOT] Auto-healer + SQLite DB active');
+});
+
+// EADDRINUSE IS NOT A CRASH. It means the port is already served.
+//
+// app.listen had no error handler, so a second node losing the race to bind died with
+// an uncaught stack trace: 59 of them in tasks/logs/server_crash.txt, recurring on the
+// 04:45 restart and logged in the daily note on 2026-09-16 as unfixed.
+//
+// THE RACE IS REAL AND THE WATCHDOG IS NOT AT FAULT. ensure_running.ps1 checks by HTTP
+// rather than by process name - deliberately, because "a node process that is alive but
+// wedged is not a running server". But a server that has started and has not yet bound
+// answers no HTTP either, so a watchdog tick inside that window correctly sees "down"
+// and starts a second one. The first then binds, and the second hits EADDRINUSE.
+//
+// Exiting 0 is the honest code: the watchdog's goal - something serving on this port -
+// is satisfied, by the other process. A stack dump said "this server crashed", which
+// was never true and cost 59 entries of noise in the crash log that a real crash then
+// had to be found among.
+//
+// ONLY EADDRINUSE is handled. Every other listen error still throws, because those do
+// mean this server cannot serve.
+httpServer.on('error', (err) => {
+  if (err && err.code === 'EADDRINUSE') {
+    console.log(`[BOOT] Port ${PORT} is already served by another instance — exiting quietly. `
+      + `This is not a crash: the watchdog's goal is met by the process that owns the port.`);
+    process.exit(0);
+  }
+  throw err;
 });
