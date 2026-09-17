@@ -68,6 +68,34 @@ REM Clean room: outside the project so CLAUDE.md does not load.
 set "AGENTCWD=%LOCALAPPDATA%\SmartEntryAgentCwd"
 if not exist "%AGENTCWD%" mkdir "%AGENTCWD%"
 
+REM  CLEAN-ROOM MCP CONFIG. Completes the 2026-09-14 repair, which stopped one
+REM  server short of working.
+REM
+REM  .mcp.json declares smartentry as "node ./server/mcp_server.js". That path is
+REM  relative to the WORKING DIRECTORY, and the clean room is not the repo - so of
+REM  the 7 declared servers the 6 npx ones resolved from the registry and the one
+REM  that actually matters here did not. Agents could reach memory and the
+REM  filesystem but never the trading system itself.
+REM
+REM  .mcp.json IS NOT EDITED, deliberately. It is git-tracked and the two boxes
+REM  hold different repo roots, so a hardcoded absolute path would break the other
+REM  machine; and a ${VAR} placeholder would break every INTERACTIVE session,
+REM  where cwd IS the repo and "./server/..." already resolves correctly. Instead
+REM  a copy is generated here with the path resolved from PROJ at runtime - right
+REM  on both boxes, and incapable of affecting an interactive run.
+REM
+REM  node, not a text substitution: JSON-aware, so it cannot corrupt the file the
+REM  way a regex or a PS 5.1 Get-Content/Set-Content round-trip can.
+set "AGENTMCP=%AGENTCWD%\.mcp.agent.json"
+del "%AGENTMCP%" 2>nul
+node -e "const fs=require('fs');const j=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));const s=j.mcpServers&&j.mcpServers.smartentry;if(s&&Array.isArray(s.args)){s.args=s.args.map(a=>String(a).replace(/^\.\//,process.argv[3]+'/'))}fs.writeFileSync(process.argv[2],JSON.stringify(j,null,2),'utf8')" "%PROJ%\.mcp.json" "%AGENTMCP%" "%PROJFWD%"
+if not exist "%AGENTMCP%" (
+  echo [%DATE% %TIME%] %AGENT%: clean-room MCP config NOT built - falling back to the repo copy, smartentry will not load >> "%LOG%"
+  set "AGENTMCPFWD=%PROJFWD%/.mcp.json"
+) else (
+  set "AGENTMCPFWD=%AGENTMCP:\=/%"
+)
+
 set "LOG=%PROJ%\tasks\logs\agent_%AGENT%.txt"
 set "RUNOUT=%PROJ%\tasks\logs\agent_%AGENT%_run_%RANDOM%%RANDOM%.tmp"
 
@@ -153,7 +181,7 @@ REM   a cwd-relative path that cannot resolve in the clean room, so 6 of 7 serve
 REM   and smartentry does not. Fixing it means editing .mcp.json - a second file - which
 REM   the 2026-09-14 freeze forbids in this repair. Logged, not chased.
 pushd "%AGENTCWD%"
-call claude -p "You are the '%AGENT%' agent for SmartEntry Pro. Your full brief is the file %DEF% - READ IT FIRST and follow it exactly, including everything it forbids. Work on the repository at %PROJ%. HARD RULES for this run, which override anything in the brief that sounds permissive: do NOT edit, create or delete any source file; do NOT run git commit, git push, git reset or git checkout; do NOT install, register or modify any scheduled task; do NOT place, size or close a trade. You are producing a REPORT, not a change. Write your findings to %PROJ%\tasks\logs\agent_%AGENT%_report.md, overwriting it, with the date on the first line. If you find something worth changing, describe it there with the file, the exact change and the evidence - do not apply it. Be specific and short; every claim must name the file or command you verified it from." --dangerously-skip-permissions --output-format text --append-system-prompt "%NONINTERACTIVE%" --add-dir "%PROJ%" --mcp-config "%PROJFWD%/.mcp.json" --strict-mcp-config <nul > "%RUNOUT%" 2>&1
+call claude -p "You are the '%AGENT%' agent for SmartEntry Pro. Your full brief is the file %DEF% - READ IT FIRST and follow it exactly, including everything it forbids. Work on the repository at %PROJ%. HARD RULES for this run, which override anything in the brief that sounds permissive: do NOT edit, create or delete any source file; do NOT run git commit, git push, git reset or git checkout; do NOT install, register or modify any scheduled task; do NOT place, size or close a trade. You are producing a REPORT, not a change. Write your findings to %PROJ%\tasks\logs\agent_%AGENT%_report.md, overwriting it, with the date on the first line. If you find something worth changing, describe it there with the file, the exact change and the evidence - do not apply it. Be specific and short; every claim must name the file or command you verified it from." --dangerously-skip-permissions --output-format text --append-system-prompt "%NONINTERACTIVE%" --add-dir "%PROJ%" --mcp-config "%AGENTMCPFWD%" --strict-mcp-config <nul > "%RUNOUT%" 2>&1
 set CLAUDE_RC=%ERRORLEVEL%
 popd
 
