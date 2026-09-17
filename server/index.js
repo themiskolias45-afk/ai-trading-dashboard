@@ -7501,6 +7501,9 @@ const hasConfidence = (v) => {
 };
 
 // Performance stats — actual win rate per setup + confidence calibration
+// Below this, a "1R" loss risked a fraction of the day's range and is not commensurable
+// with one that risked twice it. 0.25 is a reporting boundary only — nothing gates on it.
+const STOP_ATR_MIN_MEANINGFUL = 0.25;
 app.get("/api/stats/by-setup", (_, res) => {
   const closed = tradeJournal.filter(t => t.status === "CLOSED" && t.pnl !== null);
   if (!closed.length) return res.json({ noData: true, message: "No closed trades yet" });
@@ -7534,6 +7537,9 @@ app.get("/api/stats/by-setup", (_, res) => {
     if (!bySetup[key]) bySetup[key] = {
       setup: key, trades: 0, wins: 0, losses: 0, totalPnl: 0,
       totalRR: 0, rrTrades: 0, totalRealizedR: 0, realizedRTrades: 0,
+      // Stop-distance dispersion accumulators — see the comment at the push site below.
+      stopAtrSamples: [], stopAtrBelowQuarter: 0,
+      totalRealizedRAbove: 0, realizedRAboveTrades: 0,
     };
     const s = bySetup[key];
     s.trades++;
@@ -7549,6 +7555,26 @@ app.get("/api/stats/by-setup", (_, res) => {
 
     const realizedR = realizedRFromPrices(t.direction, t.entry, t.sl, t.closePrice);
     if (realizedR !== null) { s.totalRealizedR += realizedR; s.realizedRTrades++; }
+
+    // STOP DISTANCE IN ATR, so avgRealizedR can be read as one unit or two.
+    //
+    // R is a ratio: a fill stopped 0.075 ATR away and one stopped 2.061 ATR away both
+    // produce "1R" of loss while risking wildly different amounts of the day's range.
+    // Averaging them is averaging two different things. Measured 2026-09-17 over the
+    // live journal: stop distance spans 0.075 to 2.061 ATR, median 0.793, with 4 of 20
+    // scorable rows below 0.25 ATR - a 27x spread inside one average.
+    //
+    // PURE MEASUREMENT, mapped and never written back - the same rule stated for
+    // riskDollarsPerR. No gate, no guard, no filter, no trade prevented, no sample spent.
+    const atr = Number(t.atr);
+    if (Number.isFinite(atr) && atr > 0 && Number.isFinite(Number(t.entry)) && Number.isFinite(Number(t.sl))) {
+      const distAtr = Math.abs(Number(t.entry) - Number(t.sl)) / atr;
+      if (Number.isFinite(distAtr)) {
+        s.stopAtrSamples.push(distAtr);
+        if (distAtr < STOP_ATR_MIN_MEANINGFUL) s.stopAtrBelowQuarter++;
+        else if (realizedR !== null) { s.totalRealizedRAbove += realizedR; s.realizedRAboveTrades++; }
+      }
+    }
   }
   const setupStats = Object.values(bySetup).map(s => ({
     ...s,
@@ -7561,6 +7587,27 @@ app.get("/api/stats/by-setup", (_, res) => {
     avgRealizedR: s.realizedRTrades > 0
       ? parseFloat((s.totalRealizedR / s.realizedRTrades).toFixed(2))
       : null,
+    // The dispersion behind that single number. n is stated beside every statistic here
+    // for the same reason it is everywhere else in this file: a mean over an unstated
+    // denominator is how a partial read gets mistaken for a reading.
+    stopDistanceAtr: s.stopAtrSamples.length ? (() => {
+      const sorted = [...s.stopAtrSamples].sort((a, b) => a - b);
+      const mid = Math.floor(sorted.length / 2);
+      return {
+        n: sorted.length,
+        min: parseFloat(sorted[0].toFixed(3)),
+        median: parseFloat((sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2).toFixed(3)),
+        max: parseFloat(sorted[sorted.length - 1].toFixed(3)),
+        belowQuarterAtr: s.stopAtrBelowQuarter,
+      };
+    })() : null,
+    // avgRealizedR restricted to fills whose stop was at least STOP_ATR_MIN_MEANINGFUL.
+    // If this converges on avgRealizedR once n passes ~30, the dispersion is noise and
+    // both fields should be DELETED rather than kept - that is the stated falsifier.
+    avgRealizedRAbove: s.realizedRAboveTrades > 0
+      ? parseFloat((s.totalRealizedRAbove / s.realizedRAboveTrades).toFixed(2))
+      : null,
+    realizedRAboveTrades: s.realizedRAboveTrades,
   })).sort((a, b) => b.winRate - a.winRate);
 
   // Confidence calibration — do higher confidence scores actually win more?
