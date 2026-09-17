@@ -35,10 +35,25 @@
    "ts": "2026-09-17T20:25:23.810514+00:00",
    "tag": "SESSION",
    "text": "Long session. (1) JOURNAL BLINDNESS FIXED: 11 closed executor trades (magics 20260902/3/4) existed in MT5 and in no journal - 4 on 25446287, 7 on 11581419, -204.30. Cause was three-layered: bridge filters every position path to MAGIC_NUMBER 20250101, reconcile_open_trades can only recover rows the journal already has OPEN, and /api/trade-closed silently no-opped on an unmatched ticket while returning ok:true. Both boxes now reconcile to ZERO missing. (2) ERRORS: Refresh Bars was failing hourly on BOTH boxes since EXPORT_YEARS(5) < stored span(8.04y) - fixed, history now 8.99y, 10 files grew; its all-or-nothing rollback also fixed (one capped symbol no longer reverts eleven); EADDRINUSE now exits 0 with a reason instead of 59 stack dumps; MCP fetch timeout 6s->20s after get_brain_status falsely reported FLEET UNREADABLE. Coverage boards: laptop 0 RED, VPS 0 RED. (3) 25 AI-employee proposals worked one by one: 9 were harvest artefacts (no dedup on the PROPOSED FIX marker), 13 verified and fixed, 1 declined on its own evidence, 1 STOPPED at the user's gate because it changes get_lot_size's return contract. (4) BIGGEST FINDING - CONFIDENCE IS INVERSELY CALIBRATED: 65-74% tier +21.81 / +0.518R, 75-84% -219.87 / -0.287R, 85%+ -840.92 / -0.392R. The highest-confidence tier holds ~81% of all tiered loss and the only profitable tier is the lowest. Reported, not acted on. (5) OPEN: laptop bridge still on old code - runs elevated, this session cannot restart it."
+  },
+  {
+   "ts": "2026-09-17T21:00:11.362132+00:00",
+   "tag": "EOD",
+   "text": "EOD 2026-09-17: 2 trades | 0.0% WR | $-79.21 | You've hit your session limit · resets 10:40pm (Europe/London)"
+  },
+  {
+   "ts": "2026-09-17T21:43:41.682624+00:00",
+   "tag": "EOD",
+   "text": "EOD 2026-09-17: 2 trades | 0.0% WR | $-79.21 | TODAY: Two FVG continuation entries, both stopped — $-79.21 on a 0-for-2 day, and the setup now has no wins to its name."
+  },
+  {
+   "ts": "2026-09-17T22:41:37.691225+00:00",
+   "tag": "SESSION",
+   "text": "Later session, continued. (1) FREEZE REPAIR #1 COMPLETED (7f04f42): .mcp.json declared smartentry as a cwd-relative path that could not resolve in the agent clean room, so 6 of 7 MCP servers loaded and the trading one did not. run_agent.bat now builds a clean-room config with the path resolved from PROJ at runtime - .mcp.json is NOT edited, because it is git-tracked and the two boxes have different roots. Proved by the tester agent, which had failed that check 5 consecutive runs: 'B1 resolved - smartentry MCP is reachable'. Agents now persist to the shared graph (28 review-finding entities). (2) PROPOSAL BACKLOG 25 -> 0 on both boxes (26fbef5, VPS 990c615): 9 were harvest artefacts (the ledger mints ids off the PROPOSED FIX marker with no dedup, including for prose INSIDE another proposal's evidence), 13 implemented, 1 deferred on lot sizing. (3) BOTH BOXES LEVELLED: 11 fixes ported via git apply --check (10 applied, 0 failed) + one anchored block for decisions.cjs, which git treats as binary because keyOf() uses a literal NUL separator. fileDrift 7 -> 4, engineDrift 0. (4) TWO PREMARKET GAPPER SCANNERS built (11d3fc7 .ps1 both boxes, 24676c9 .sh laptop only - the VPS has no bash). Byte-identical output; three defects found by RUNNING them, incl. Yahoo returning premarket volume as a literal 0 (now n/a, and the volume filter is REFUSED rather than silently matching nothing). (5) i40 PILOT: built twice wrong before researching it properly. i40 = Industry 4.0; the acatech Maturity Index is a capability model (6 cascading stages, 4 structural areas) and RAMI 4.0 is deliberately NOT used - its hierarchy axis is the factory floor. A pilot succeeds when it TRANSCENDS TO A FULL PROJECT. Final build: PILOT-001 pre-registered (fb10fce) with the four measurements fixed before it runs. Target n>=37 DERIVED from (1.96*sd/|mean|)^2, not chosen. RULE 7 checked first - lab_promote.cjs MAX_DAYS_TO_PROOF 365, and the 85%+ tier settles in 294 days, so it was worth registering; the 65-74 tier at 372 days would not have been. MIN_TRADES=100 deliberately NOT used and the reason stated. (6) FOUR NEW FILES added under the freeze, all on explicit instruction, all named in CLAUDE.md's scoreboard rather than absorbed into the count. tasks/ 687 -> 689 in under three hours on artefacts alone."
   }
  ],
  "signals": [],
  "trades": [],
  "created_at": "2026-09-17T03:28:59.513999+00:00",
- "updated_at": "2026-09-17T20:25:23.810514+00:00"
+ "updated_at": "2026-09-17T22:41:37.691225+00:00"
 }

@@ -260,10 +260,18 @@ surface it, write it down, and wait for the freeze to end.
 
 ```
                      2026-09-14   2026-09-17    target 2026-10-14
-tasks/ files              479          687            479      ls tasks | measure
-commits per week          359          146           < 50      git log --since=7.days
+tasks/ files              479          689            479      ls tasks | measure
+commits per week          359          157           < 50      git log --since=7.days
 closed trades ever         31           55            45+      MT5 history, system magics
 ```
+
+**FOUR FILES WERE ADDED AFTER that reading, by me, in the same session that recorded
+it.** `premarket_gappers.ps1`, `premarket_gappers.sh`, `dashboard/i40-pilot.html` and
+`dashboard/i40-pilot-001.json` - all on explicit instruction, none a repair. They are
+named here rather than absorbed into the count, because a scoreboard that silently
+swallows its own additions measures nothing. The `tasks/` figure moved 687 -> 689 on
+per-run artefacts alone in under three hours, which is the growth rate the freeze was
+called to stop.
 
 Files rising means the freeze failed. Trades not rising means nothing was learned,
 whatever else happened.
