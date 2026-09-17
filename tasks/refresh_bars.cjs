@@ -240,8 +240,30 @@ async function main() {
   // a log.
   // getJson resolves { status, json } - not the body. Reading health.connected here
   // would be undefined forever and would report a healthy bridge as dead on every run.
-  const health = await getJson("/api/mt5/health?account=A").catch(function () { return null; });
-  const hj = health && health.json ? health.json : null;
+  // RETRY BEFORE ALARMING. This was a SINGLE probe fired the instant the export
+  // finished, which is exactly when the bridge is least able to answer: it polls on a
+  // 60s loop and has just been contending with the exporter's second MT5 client for
+  // IPC. Measured 2026-09-17: this reported "BRIDGE A IS NOT ANSWERING" and set exit 2
+  // on a run where the bridge never dropped at all - same pid throughout, no gap in
+  // its poll log, and /api/mt5/health read connected:true with ageMs 9564 seconds
+  // later. A refresh that worked was reported as a failure.
+  //
+  // Six attempts across ~90s. A genuinely dead bridge still alarms, just 90s later,
+  // which costs nothing here: this block only REPORTS. tasks/ensure_running.ps1 owns
+  // recovery, never kills, and runs on its own schedule far longer than 90s.
+  const BRIDGE_PROBE_ATTEMPTS = 6;
+  const BRIDGE_PROBE_GAP_MS = 15000;
+  let hj = null;
+  for (let attempt = 1; attempt <= BRIDGE_PROBE_ATTEMPTS; attempt++) {
+    const health = await getJson("/api/mt5/health?account=A").catch(function () { return null; });
+    hj = health && health.json ? health.json : null;
+    if (hj && hj.connected === true) break;
+    if (attempt < BRIDGE_PROBE_ATTEMPTS) {
+      log("  bridge A did not answer (attempt " + attempt + "/" + BRIDGE_PROBE_ATTEMPTS
+        + ") - waiting " + (BRIDGE_PROBE_GAP_MS / 1000) + "s before retrying.");
+      await new Promise(function (resolve) { setTimeout(resolve, BRIDGE_PROBE_GAP_MS); });
+    }
+  }
   if (hj && hj.connected === true) {
     log("  bridge A still connected after the export (last seen "
       + (hj.lastSeen || "?") + ").");
