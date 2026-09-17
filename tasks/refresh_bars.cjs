@@ -174,14 +174,41 @@ async function main() {
   const sizesAfter = fileSizes();
   const shrunk = Object.keys(sizesBefore).filter(name =>
     sizesBefore[name] > 0 && sizesAfter[name] < sizesBefore[name] * MIN_RETAINED_FRACTION);
+  // RESTORE PER FILE, not all twelve.
+  //
+  // This block used to roll back EVERY file whenever any one of them shrank, which
+  // made a single permanently un-refreshable file block the other eleven forever.
+  // Measured 2026-09-17: with EXPORT_YEARS corrected to 9, eleven files exported a
+  // clean superset (D1/H4/H1 all reaching 2017-09-20, XAUUSD_H4 13,268 bars) and the
+  // whole run was reverted because of one file:
+  //     BTCUSD_M15: 6862530 -> 6507331   (0.948 of previous, just under the 0.95 floor)
+  //
+  // That file cannot be re-exported at its stored depth and this is not a fault.
+  // MT5's M15 history is capped near 100k bars per symbol - the same run returned
+  // SP500 M15 at 100,796 bars reaching only 2022-06-10. BTCUSD trades 24/7, so 100k
+  // M15 bars is about 2.85 years, while the stored file holds 3.07. The stored file
+  // is genuinely deeper than the broker now serves, so every future export of it will
+  // shrink, forever.
+  //
+  // THE SAFETY PROPERTY IS UNCHANGED AND STILL ABSOLUTE: no file is ever replaced by
+  // a smaller one. A file that shrank is restored from the backup taken moments ago;
+  // a file that grew is kept. What changes is only that one stuck file no longer
+  // discards eleven good refreshes.
+  const grew = Object.keys(sizesBefore).filter(name => !shrunk.includes(name));
   if (shrunk.length) {
-    log("  VERIFY FAILED - these files shrank, which means a worse export, not new history:");
+    log("  these file(s) came back smaller and were RESTORED (their existing data is kept):");
     for (const name of shrunk) log("    " + name + ": " + sizesBefore[name] + " -> " + sizesAfter[name]);
-    for (const name of Object.keys(sizesBefore)) {
+    for (const name of shrunk) {
       const backup = path.join(backupDir, name + ".csv");
       if (fs.existsSync(backup)) fs.copyFileSync(backup, path.join(HISTORY, name + ".csv"));
     }
-    log("  ROLLED BACK from " + path.relative(ROOT, backupDir) + ". The backup is kept.");
+    log("  restored from " + path.relative(ROOT, backupDir) + ". The backup is kept.");
+  }
+  // EVERY file shrank means the exporter reached a terminal with less history - the
+  // original failure this guard was built for, and still a hard failure. Distinct from
+  // "one symbol is capped", which is now survivable.
+  if (shrunk.length && grew.length === 0) {
+    log("  VERIFY FAILED - EVERY file shrank. That is a bad export, not a capped symbol.");
     process.exit(1);
   }
 
