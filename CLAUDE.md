@@ -259,14 +259,29 @@ surface it, write it down, and wait for the freeze to end.
 **THE SCOREBOARD — two numbers, checked weekly. No script; the freeze forbids one.**
 
 ```
-                     2026-09-14      target 2026-10-14
-tasks/ files              479                    479      ls tasks | measure
-commits per week          359                   < 50      git log --since=7.days
-closed trades ever         31                    45+      the journal
+                     2026-09-14   2026-09-17    target 2026-10-14
+tasks/ files              479          687            479      ls tasks | measure
+commits per week          359          146           < 50      git log --since=7.days
+closed trades ever         31           55            45+      MT5 history, system magics
 ```
 
 Files rising means the freeze failed. Trades not rising means nothing was learned,
 whatever else happened.
+
+**READING OF 2026-09-17 — mixed, and the file count is the one that matters.**
+Trades cleared the target early (31 -> 55) and commits fell 60% (359 -> 146). But
+`tasks/` grew 479 -> 687, +208 files in three days, against a target of NO growth.
+By this scoreboard's own rule that is the freeze failing, and it failed on the one
+axis the freeze exists to hold.
+
+Two honest qualifiers, neither of which rescues it. The trade count is not 24 new
+trades: it is measured from MT5 history across BOTH accounts, where the old figure
+counted one journal that could not see executor fills at all (fixed 2026-09-17,
+37bacb6) - the number went up partly because the instrument got better. And a
+large share of the 208 files are per-run artefacts that existing jobs write
+(decision_corpus rows, eod_reports, daily_plan_*.json), not hand-authored tools -
+but the freeze says NO NEW FILES, not "no new files I typed myself", and a job
+that emits a file per run is still addition nobody retires.
 
 **THE FREEZE BLOCKS NOTHING THAT MATTERS.** It stops ADDITION. It does not stop
 trading, does not suppress a signal, does not touch the gate, and does not slow the

@@ -30,10 +30,15 @@
    "ts": "2026-09-17T18:36:45.628685+00:00",
    "tag": "FREEZE-LOG",
    "text": "CORRECTION to the previous entry: the TV Daily Plan task is NOT left disabled. User's call - re-enabled and accepting the per-run failures rather than subtract the job. Verified State=Ready, Next=2026-09-17 19:55 local. Expect result 5 on runs that need a replace; the charts hold the last good plan and studies keep accumulating until the removal path is repaired after the freeze ends 2026-10-14. 'repoint all' remains the on-demand clean-up."
+  },
+  {
+   "ts": "2026-09-17T20:25:23.810514+00:00",
+   "tag": "SESSION",
+   "text": "Long session. (1) JOURNAL BLINDNESS FIXED: 11 closed executor trades (magics 20260902/3/4) existed in MT5 and in no journal - 4 on 25446287, 7 on 11581419, -204.30. Cause was three-layered: bridge filters every position path to MAGIC_NUMBER 20250101, reconcile_open_trades can only recover rows the journal already has OPEN, and /api/trade-closed silently no-opped on an unmatched ticket while returning ok:true. Both boxes now reconcile to ZERO missing. (2) ERRORS: Refresh Bars was failing hourly on BOTH boxes since EXPORT_YEARS(5) < stored span(8.04y) - fixed, history now 8.99y, 10 files grew; its all-or-nothing rollback also fixed (one capped symbol no longer reverts eleven); EADDRINUSE now exits 0 with a reason instead of 59 stack dumps; MCP fetch timeout 6s->20s after get_brain_status falsely reported FLEET UNREADABLE. Coverage boards: laptop 0 RED, VPS 0 RED. (3) 25 AI-employee proposals worked one by one: 9 were harvest artefacts (no dedup on the PROPOSED FIX marker), 13 verified and fixed, 1 declined on its own evidence, 1 STOPPED at the user's gate because it changes get_lot_size's return contract. (4) BIGGEST FINDING - CONFIDENCE IS INVERSELY CALIBRATED: 65-74% tier +21.81 / +0.518R, 75-84% -219.87 / -0.287R, 85%+ -840.92 / -0.392R. The highest-confidence tier holds ~81% of all tiered loss and the only profitable tier is the lowest. Reported, not acted on. (5) OPEN: laptop bridge still on old code - runs elevated, this session cannot restart it."
   }
  ],
  "signals": [],
  "trades": [],
  "created_at": "2026-09-17T03:28:59.513999+00:00",
- "updated_at": "2026-09-17T18:36:45.628685+00:00"
+ "updated_at": "2026-09-17T20:25:23.810514+00:00"
 }
