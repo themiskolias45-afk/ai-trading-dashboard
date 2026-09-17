@@ -3213,6 +3213,146 @@ RECONCILE_INTERVAL_S = 300
 # reprint the same warning forever. Cleared per ticket the moment it reconciles.
 reconcile_warned = set()
 
+# ── EXECUTOR BACKFILL ─────────────────────────────────────────────────────────
+#
+# reconcile_open_trades() below starts from fetch_open_journal_entries() and
+# returns immediately when that is empty. Its recovery domain IS the set of rows
+# the journal already has OPEN, so a trade that never got an OPEN row sits
+# outside it permanently, however many sweeps run.
+#
+# Executor fills never get one. Every position path in this file filters to
+# MAGIC_NUMBER (:1242 :1387 :1571 :2518 :2735 :2826 :3080), so magics
+# 20260902/3/4 never produce a trade-opened POST. Measured 2026-09-17 against MT5
+# on both boxes: 11 closed executor trades in MT5 and in NO journal - 4 on
+# 25446287, 7 on 11581419, -204.30 combined.
+#
+# This does NOT re-read MT5. tasks/all_trades_ledger.jsonl already sweeps every
+# magic with no filter, runs on a schedule on BOTH boxes (verified 2026-09-17:
+# laptop 20:06:01 result 0, VPS 20:31:31 result 0), is append-only, keyed on
+# position id, and carries the login it was read from. It already held all 11.
+# The capture was never the problem; nothing carried it to the journal.
+LEDGER_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "tasks", "all_trades_ledger.jsonl")
+# The ledger holds years. Only recent closes are worth re-offering: anything older
+# has either landed already or belongs to a period nobody is reconciling.
+BACKFILL_LOOKBACK_DAYS = 45
+# (ticket, tag) pairs this PROCESS has already offered, so a 5-minute sweep does
+# not re-POST the same rows all day. The server dedupes too; this just keeps the
+# traffic and the log quiet.
+backfill_posted = set()
+
+
+def fetch_journal_keys():
+    """Every (ticket, account) pair the journal holds, OPEN or CLOSED.
+
+    None on any failure - distinct from an empty set, which means "the journal is
+    genuinely empty". Backfilling against a failed read would re-post everything.
+    """
+    try:
+        res = requests.get(
+            f"{SERVER_URL}/api/journal",
+            params={"limit": JOURNAL_FETCH_LIMIT},
+            timeout=JOURNAL_REQUEST_TIMEOUT_S,
+        )
+        res.raise_for_status()
+        entries = res.json().get("journal")
+    except Exception as exc:
+        log(f"Journal unreachable ({exc}) — skipping executor backfill.", YELLOW)
+        return None
+    if not isinstance(entries, list):
+        return None
+    return {(e.get("ticket"), e.get("account")) for e in entries if isinstance(e, dict)}
+
+
+def backfill_executor_closes():
+    """POST closed EXECUTOR positions the journal never opened.
+
+    Append-only at the far end: the server's backfill branch adds a row and never
+    rewrites an existing one, and deliberately does not score it into the learning
+    or calibration record.
+
+    TWO DIFFERENT ACCOUNT VALUES, on purpose. The ledger records the numeric MT5
+    LOGIN (25446287 / 11581419) and the journal records this bridge's TAG ("A" on
+    both boxes). So rows are SELECTED by login - which is what keeps one box from
+    posting the other's trades - and POSTED with the tag, which is what lets the
+    server's ticket+account dedupe match. Sending the login instead would match
+    nothing and write a row in a convention no other row uses.
+    """
+    account_info = mt5.account_info()
+    if account_info is None:
+        return
+    login = account_info.login
+    tag = ACCOUNT_TAG or None
+
+    journal_keys = fetch_journal_keys()
+    if journal_keys is None:
+        return
+
+    if not os.path.exists(LEDGER_PATH):
+        return
+
+    # timedelta is not imported in this module; epoch arithmetic avoids touching
+    # the import line for one subtraction.
+    cutoff = datetime.fromtimestamp(
+        time.time() - BACKFILL_LOOKBACK_DAYS * 86400, tz=timezone.utc).isoformat()
+
+    posted = 0
+    try:
+        with open(LEDGER_PATH, "r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    continue            # a torn final line is normal on an append-only file
+                if row.get("account") != login:
+                    continue
+                if row.get("magic") not in EXECUTOR_MAGICS:
+                    continue
+                close_time = row.get("closeTime") or ""
+                if close_time < cutoff:
+                    continue
+                ticket = row.get("positionId")
+                if ticket is None:
+                    continue
+                key = (ticket, tag)
+                if key in journal_keys or key in backfill_posted:
+                    continue
+                try:
+                    res = requests.post(
+                        f"{SERVER_URL}/api/trade-closed",
+                        timeout=JOURNAL_REQUEST_TIMEOUT_S,
+                        json={
+                            "backfill":  True,
+                            "ticket":    ticket,
+                            "account":   tag,
+                            "symbol":    row.get("symbol"),
+                            "direction": row.get("direction"),
+                            "volume":    row.get("volume"),
+                            "entry":     row.get("openPrice"),
+                            "openTime":  row.get("openTime"),
+                            "closePrice": row.get("closePrice"),
+                            "closeTime": close_time,
+                            "pnl":       row.get("netProfit"),
+                            "magic":     row.get("magic"),
+                            "model":     row.get("model"),
+                        },
+                    )
+                    res.raise_for_status()
+                except Exception as exc:
+                    log(f"Backfill POST failed for #{ticket} ({exc}) — will retry.", YELLOW)
+                    continue
+                backfill_posted.add(key)
+                posted += 1
+    except OSError as exc:
+        log(f"Could not read the trade ledger ({exc}) — skipping executor backfill.", YELLOW)
+        return
+
+    if posted:
+        log(f"Executor backfill recorded {posted} close(s) the journal never opened.", CYAN)
+
 
 def fetch_open_journal_entries():
     """Journal entries the server still believes are open. [] on any failure.
@@ -3413,6 +3553,12 @@ def main():
         reconcile_open_trades()
     except Exception as exc:
         log(f"Startup reconciliation failed ({exc}) — continuing without it.", YELLOW)
+    # Separate try: a backfill failure must not be able to mask or abort the
+    # reconciliation above, and neither may stop the bridge from trading.
+    try:
+        backfill_executor_closes()
+    except Exception as exc:
+        log(f"Startup executor backfill failed ({exc}) — continuing without it.", YELLOW)
     last_reconcile_at = time.time()
 
     # Adopt the positions already running under our magic, so the first loop sees them
@@ -3497,6 +3643,12 @@ def main():
                     reconcile_open_trades()
                 except Exception as exc:
                     log(f"Reconciliation sweep failed ({exc}) — will retry.", YELLOW)
+                # Rides the same timer. Separate try for the same reason as at
+                # startup: neither sweep may take the other down.
+                try:
+                    backfill_executor_closes()
+                except Exception as exc:
+                    log(f"Executor backfill sweep failed ({exc}) — will retry.", YELLOW)
         except KeyboardInterrupt:
             log("Shutting down MT5 bridge…", YELLOW)
             mt5.shutdown()
