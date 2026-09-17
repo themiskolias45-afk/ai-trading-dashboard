@@ -86,6 +86,12 @@ REM  on both boxes, and incapable of affecting an interactive run.
 REM
 REM  node, not a text substitution: JSON-aware, so it cannot corrupt the file the
 REM  way a regex or a PS 5.1 Get-Content/Set-Content round-trip can.
+REM  LOG IS SET HERE, NOT TEN LINES LOWER. It used to be defined AFTER the block
+REM  below, so the one warning that says "smartentry will not load" was written
+REM  to >> "" - an empty path, which cmd rejects - and was lost. The alarm for
+REM  the exact failure that block exists to prevent was mute. Fixed 2026-09-18.
+set "LOG=%PROJ%\tasks\logs\agent_%AGENT%.txt"
+
 set "AGENTMCP=%AGENTCWD%\.mcp.agent.json"
 del "%AGENTMCP%" 2>nul
 node -e "const fs=require('fs');const j=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));const s=j.mcpServers&&j.mcpServers.smartentry;if(s&&Array.isArray(s.args)){s.args=s.args.map(a=>String(a).replace(/^\.\//,process.argv[3]+'/'))}fs.writeFileSync(process.argv[2],JSON.stringify(j,null,2),'utf8')" "%PROJ%\.mcp.json" "%AGENTMCP%" "%PROJFWD%"
@@ -96,7 +102,6 @@ if not exist "%AGENTMCP%" (
   set "AGENTMCPFWD=%AGENTMCP:\=/%"
 )
 
-set "LOG=%PROJ%\tasks\logs\agent_%AGENT%.txt"
 set "RUNOUT=%PROJ%\tasks\logs\agent_%AGENT%_run_%RANDOM%%RANDOM%.tmp"
 
 REM --- ONE RUN PER AGENT AT A TIME -------------------------------------------
@@ -176,10 +181,13 @@ REM   --mcp-config names the config explicitly so the servers load WITHOUT movin
 REM   which keeps the clean room and the no-JARVIS isolation exactly as it was.
 REM   --strict-mcp-config additionally drops the user's global connectors, so the agent
 REM   gets these servers and nothing else - tighter isolation than before, not looser.
-REM   NOT FIXED HERE: .mcp.json declares smartentry as "node ./server/mcp_server.js",
-REM   a cwd-relative path that cannot resolve in the clean room, so 6 of 7 servers load
-REM   and smartentry does not. Fixing it means editing .mcp.json - a second file - which
-REM   the 2026-09-14 freeze forbids in this repair. Logged, not chased.
+REM   FIXED 2026-09-17: smartentry declared a cwd-relative "./server/mcp_server.js"
+REM   that cannot resolve in the clean room, so 6 of 7 servers loaded and the one
+REM   that matters did not. The block above now generates a clean-room copy with
+REM   that path resolved absolutely from %PROJ% at runtime; .mcp.json is untouched.
+REM   VERIFIED on both boxes 2026-09-18 - the laptop resolves it to
+REM   C:/Users/User/ai-trading-dashboard/server/mcp_server.js and the VPS to
+REM   C:/ai-trading-dashboard/server/mcp_server.js, all 7 servers present in both.
 pushd "%AGENTCWD%"
 call claude -p "You are the '%AGENT%' agent for SmartEntry Pro. Your full brief is the file %DEF% - READ IT FIRST and follow it exactly, including everything it forbids. Work on the repository at %PROJ%. HARD RULES for this run, which override anything in the brief that sounds permissive: do NOT edit, create or delete any source file; do NOT run git commit, git push, git reset or git checkout; do NOT install, register or modify any scheduled task; do NOT place, size or close a trade. You are producing a REPORT, not a change. Write your findings to %PROJ%\tasks\logs\agent_%AGENT%_report.md, overwriting it, with the date on the first line. If you find something worth changing, describe it there with the file, the exact change and the evidence - do not apply it. Be specific and short; every claim must name the file or command you verified it from." --dangerously-skip-permissions --output-format text --append-system-prompt "%NONINTERACTIVE%" --add-dir "%PROJ%" --mcp-config "%AGENTMCPFWD%" --strict-mcp-config <nul > "%RUNOUT%" 2>&1
 set CLAUDE_RC=%ERRORLEVEL%

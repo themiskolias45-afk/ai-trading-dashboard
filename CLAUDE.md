@@ -62,7 +62,18 @@ At the start of every interactive session:
 
    At session end `tasks/hooks/session-stop.ps1` runs `tasks/memory_index_guard.py`,
    which already passes the flag and shouts if the index shrinks — so on the laptop this
-   is enforced, not remembered. **Neither file exists on the VPS**, measured 2026-09-11.
+   is enforced, not remembered. **AND ON THE VPS TOO, since 2026-09-18.** This line
+   said "neither file exists on the VPS" (measured 2026-09-11); that was true then and
+   stopped being true the same day `rag_index.py` and `memory_index_guard.py` were
+   deployed there. The guard still had NO CALLER, though: the VPS `session-stop.ps1`
+   was the pre-guard 7,133-byte version, so its index sat unrefreshed for seven days
+   (`last indexed 2026-09-11T21:00:16`, read from the guard's own log 2026-09-18).
+   The hook is now the same file on both boxes - the VPS copy was a byte-exact PREFIX
+   of the laptop's, so deploying it appended 56 lines and changed nothing that existed.
+   Verified by running it on the VPS: `ok: chunks 2333 -> 2333 across 427 files`.
+   The two indexes differ in SIZE (VPS 2333 vs laptop 2506) because the memory .md
+   files themselves diverge - see [[the_vps_could_not_refresh_a_corrected_memory]],
+   which says plainly: DO NOT bulk-sync them.
 
    **Run the query before concluding something is not recorded.** On 2026-09-01 five
    measured findings turned out to have sat on the other box for a month, unknown here.
