@@ -99,7 +99,26 @@ function httpRequest(urlPath, opts = {}) {
     if (_sessionCookie) headers.Cookie = _sessionCookie;
     const req = lib.request(
       fullUrl,
-      { method: opts.method || 'GET', headers, timeout: opts.timeout || 6000 },
+      // 20s, not 6s. The old default was SHORTER THAN THE ROUTES IT FETCHES.
+      //
+      // Measured 2026-09-17 on a warm laptop with nothing else running:
+      //   /api/system-plan    2.63s   114,722 b
+      //   /api/evidence-board 1.83s    79,440 b
+      // get_brain_status fetches system-plan, fleet, signals and more IN PARALLEL on
+      // one node event loop, so their times add against a single 6s budget. It tripped
+      // live: the first call returned "FLEET UNREADABLE" with gate null, and a second
+      // call 40 seconds later returned FLEET AGREES, gate 70, every job listed. Nothing
+      // was wrong with the fleet either time.
+      //
+      // That is worse than a slow answer. CLAUDE.md's startup step 5 says to call
+      // get_brain_status FIRST and read its `blocking` field, and the failure text says
+      // the routes "did not answer" rather than "I gave up waiting" - so a session
+      // booting during any slow moment is told the fleet is unreadable and the gate is
+      // unknown, and cannot tell that from a real outage.
+      //
+      // 20s clears the measured worst case with ~7x headroom while still bounding a
+      // genuinely hung route. Per-call opts.timeout still overrides.
+      { method: opts.method || 'GET', headers, timeout: opts.timeout || 20000 },
       (res) => {
         let body = '';
         res.on('data', d => (body += d));
