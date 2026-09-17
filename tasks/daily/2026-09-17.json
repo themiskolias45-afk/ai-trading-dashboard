@@ -25,10 +25,15 @@
    "ts": "2026-09-17T18:35:29.107059+00:00",
    "tag": "FREEZE-LOG",
    "text": "TV Daily Plan fails on a loop (task result 5 = bot exit 1). Root cause is NOT the 'Volatility Trend Breakout' Pine script left in the editor - that jammed exactly one run (18:56 UTC 09-17) and cleared itself. The live defect: after a successful save the bot must REPLACE the chart's plan study, and removing the currently-bound study fails with 'no Remove control appeared', while sibling stale studies remove fine (5 then 6 removed in consecutive runs). Every run mints a new stamp so every run needs a replace, so every run fails. Feedback loop: each failed run leaves another study on the chart, lengthening the Object tree the removal must reach into. Same trap class as the off-screen-row fix of 2026-08-30 (JS_SCROLL_TEXT_INTO_VIEW, tradingview_bot.py:1209 comment) - recurring, not identical. WORKAROUND THAT WORKS, no code change: 'python tradingview_bot.py repoint all' rebuilds the study against the current saved script and exits 0; verified twice today, charts left carrying 'JARVIS Daily Plan 09-17 19:29' on BTC/GOLD/SPX. It buys clean charts but does not stop the next scheduled run from failing. A real fix means editing the removal path in tradingview_bot.py = a FOURTH repair, which the surface freeze forbids. LOGGED, NOT FIXED. Scheduled task left DISABLED pending the user's call - note that is a subtraction and needs his decision either way."
+  },
+  {
+   "ts": "2026-09-17T18:36:45.628685+00:00",
+   "tag": "FREEZE-LOG",
+   "text": "CORRECTION to the previous entry: the TV Daily Plan task is NOT left disabled. User's call - re-enabled and accepting the per-run failures rather than subtract the job. Verified State=Ready, Next=2026-09-17 19:55 local. Expect result 5 on runs that need a replace; the charts hold the last good plan and studies keep accumulating until the removal path is repaired after the freeze ends 2026-10-14. 'repoint all' remains the on-demand clean-up."
   }
  ],
  "signals": [],
  "trades": [],
  "created_at": "2026-09-17T03:28:59.513999+00:00",
- "updated_at": "2026-09-17T18:35:29.107059+00:00"
+ "updated_at": "2026-09-17T18:36:45.628685+00:00"
 }
