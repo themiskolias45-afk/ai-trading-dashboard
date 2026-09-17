@@ -8616,11 +8616,15 @@ app.get("/api/learning", (_, res) => {
     const summary = {};
     for (const [setup, s] of Object.entries(learning.setupStats)) {
       const total = s.wins + s.losses;
+      // Called ONCE and reused for `boost`, `boostBasis.pnlDisagreesWithBoost` and
+      // `status`. Three call sites reading the same function three times is how they
+      // drift apart - and `status` used to not read it at all.
+      const setupBoost = getLearningBoost(setup);
       summary[setup] = {
         wins: s.wins, losses: s.losses, total,
         winRate: total > 0 ? parseFloat((s.wins / total * 100).toFixed(1)) : null,
         totalPnl: s.totalPnl,
-        boost: getLearningBoost(setup),
+        boost: setupBoost,
         // WHAT THE BOOST READ, AND WHAT IT DID NOT. getLearningBoost uses WIN RATE only;
         // it never looks at totalPnl and never looks at the per-symbol split that
         // `bySymbol` below already carries. Measured 2026-09-08, MOMENTUM was boosted +2
@@ -8641,14 +8645,32 @@ app.get("/api/learning", (_, res) => {
           readsWinRateOnly: true,
           readsPnl: false,
           readsPerSymbol: false,
-          pnlDisagreesWithBoost: getLearningBoost(setup) > 0 && Number.isFinite(s.totalPnl) && s.totalPnl < 0,
+          pnlDisagreesWithBoost: setupBoost > 0 && Number.isFinite(s.totalPnl) && s.totalPnl < 0,
         },
         // LEARNING_MIN_TRADES, not a bare 5. The literal here was a THIRD hand-copied
         // copy of the floor getLearningBoost actually gates on (:1288), with nothing
         // tying them together - so the label "learning" and the boost being zero could
         // silently come to disagree. 5 == LEARNING_MIN_TRADES today, so this changes no
         // byte of the payload; it removes the way they can drift apart.
-        status: total < LEARNING_MIN_TRADES ? "learning" : s.wins / total > 0.55 ? "boosted" : s.wins / total < 0.45 ? "penalised" : "neutral"
+        //
+        // DERIVED FROM THE BOOST, not from two more hand-copied literals. This read
+        // `s.wins / total > 0.55 ? "boosted" : s.wins / total < 0.45 ? "penalised"`,
+        // and getLearningBoost uses NEITHER number: above 0.5 it returns
+        // round((wr - 0.5) * 30), which first reaches +1 at wr 51.67%, and below 0.5 it
+        // shrinks toward the prior before rounding. So the whole band 51.67%-55% carried
+        // a POSITIVE boost beside the word "neutral", and a band below 50% carried a
+        // negative one. Reproduced 2026-09-17 against the live constants:
+        //     7W/6L  53.85%  boost +1  label neutral
+        //     5W/6L  45.45%  boost -1  label neutral
+        // MOMENTUM sits at 6W/8L today, where the two agree - but one win takes it to
+        // 7W/8L (46.67%, boost -1) and they diverge again. The two literals are DELETED,
+        // not moved: the label now cannot disagree with the number it describes.
+        // getLearningBoost is called once and reused for both fields, so this adds no
+        // read and no second call.
+        status: total < LEARNING_MIN_TRADES ? "learning"
+              : setupBoost > 0 ? "boosted"
+              : setupBoost < 0 ? "penalised"
+              : "neutral"
       };
     }
     // Shadow evidence rides ALONGSIDE, never merged in.
