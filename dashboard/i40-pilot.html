@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>i40 Pilot — SmartEntry Pro</title>
+<link rel="icon" href="/dashboard/favicon.svg">
+<!--
+  i40 PILOT — what this system is currently VALIDATING, and how far from committed.
+
+  WHAT "i40 PILOT" MEANS HERE, researched 2026-09-17 rather than assumed. i40 is
+  Industry 4.0, and an I4.0 pilot project is "a small-scale experimental initiative
+  that helps organizations test and validate technologies before committing to
+  full-scale implementation" (Barata & Cunha, ACIS 2018; Sensors 20(20):5752).
+  The industrial half of I4.0 — IoT sensors, cyber-physical plant, predictive
+  maintenance of machines — does NOT apply to a trading system and is not pretended
+  to here. The PILOT DISCIPLINE does, exactly: run it small, measure it, and do not
+  commit money until the evidence clears a stated bar.
+
+  This page is that discipline made visible. It answers one question:
+  WHAT IS UNDER TEST, HOW OLD IS THE EVIDENCE, AND WHAT WOULD SETTLE IT.
+
+  READS LIVE ENDPOINTS ONLY, all of which already exist:
+    /api/measurements    the harnesses, their AGE, and the command to re-run each
+    /api/evidence-board  every claim with its verdict and its recuration flag
+    /api/checksystem     calibration tiers, the open book, the breaker
+    /api/learning        whether the record the engine learns from is complete
+    /api/fleet           both boxes, because one box is not the system
+  No new route and no generated file, so it needs NO server restart to appear —
+  the same reason Instruments, Pipelines, Analysis and Weekly are static paths.
+  A page that needs a restart to exist is a page that does not exist on the box
+  whose restart is blocked.
+
+  IT DOES NOT DUPLICATE SYSTEM-MAP.md. That file holds the five-stage build plan
+  and the ranked "10 Upgrades"; this page holds LIVE PILOT STATE and links to it.
+  Checked before writing: system-map.html renders brain-stats.json (RAG counters),
+  system-architecture.html carries no stage content, and nothing anywhere in the
+  repo matched i40 or pilot. The roadmap had no surface at all.
+
+  FEEDS NO GATE. Nothing here is read by the engine, the bridge, the sizing path or
+  any threshold. It is a reading surface. Numbers shown with an age are shown with
+  an age on purpose: a measurement whose date is hidden is how a stale number gets
+  quoted as current.
+-->
+<link rel="stylesheet" href="/dashboard/theme.css">
+<link rel="stylesheet" href="/dashboard/nav.css">
+<script src="/dashboard/nav.js" defer></script>
+<style>
+  :root{
+    --bg:#0b0e13; --panel:#141920; --panel-2:#1a212b; --line:rgba(255,255,255,.09);
+    --text:#e8edf4; --muted:#98a4b5; --muted-dim:#6b7789;
+    --green:#3ecf8e; --red:#ff6b5e; --amber:#ffb800; --accent:#5b9dd9;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font:14px/1.6 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+  .wrap{max-width:1140px;margin:0 auto;padding:28px 20px 80px}
+  h1{font-size:24px;margin:0 0 6px;font-weight:650;letter-spacing:-.01em}
+  h2{font-size:15px;margin:0 0 4px;font-weight:650}
+  .sub{color:var(--muted);font-size:13px;margin:0 0 22px}
+  .note{color:var(--muted-dim);font-size:12px;margin:0 0 14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:18px 20px;margin-bottom:16px}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-variant-numeric:tabular-nums}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{text-align:left;color:var(--muted);font-weight:600;padding:6px 10px 6px 0;
+    border-bottom:1px solid var(--line);white-space:nowrap}
+  td{padding:7px 10px 7px 0;border-bottom:1px solid rgba(255,255,255,.05);vertical-align:top}
+  td.num{text-align:right;font-family:ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+  .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:650}
+  .ok{background:rgba(62,207,142,.14);color:var(--green)}
+  .bad{background:rgba(255,107,94,.14);color:var(--red)}
+  .warn{background:rgba(255,184,0,.14);color:var(--amber)}
+  .dim{background:rgba(255,255,255,.06);color:var(--muted)}
+  .pos{color:var(--green)} .neg{color:var(--red)}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(215px,1fr));gap:12px}
+  .kpi{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+  .kpi .lab{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+  .kpi .val{font-size:20px;font-weight:650;margin-top:3px;
+    font-family:ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+  .kpi .cap{color:var(--muted-dim);font-size:11px;margin-top:2px}
+  a{color:var(--accent)}
+  .err{color:var(--red);font-size:12.5px}
+  @media (max-width:640px){ .wrap{padding:18px 14px 60px} table{font-size:11.5px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>i40 Pilot</h1>
+  <p class="sub">What this system is currently <strong>validating</strong>, how old the
+     evidence is, and what would settle it. <span id="stamp" class="mono"></span></p>
+  <p class="note">
+    i40 is Industry 4.0. An I4.0 <em>pilot project</em> is a small-scale initiative run to
+    test and validate before committing to full-scale implementation. The industrial half
+    of I4.0 &mdash; IoT sensors, cyber-physical plant, predictive maintenance of machines
+    &mdash; does not apply to a trading system and is not pretended to here. The pilot
+    discipline does: run it small, measure it, and do not commit money until the evidence
+    clears a stated bar. Roadmap and stage completion live in
+    <span class="mono">SYSTEM-MAP.md</span>; this page is live state, not a copy of it.
+    <strong>Nothing here feeds the gate.</strong>
+  </p>
+
+  <div class="card">
+    <h2>Commitment state</h2>
+    <p class="note">The binding constraint on this system is sample size, not ideas.</p>
+    <div class="grid" id="kpis"><div class="kpi"><div class="lab">loading</div></div></div>
+  </div>
+
+  <div class="card">
+    <h2>Pilots under test &mdash; the harnesses</h2>
+    <p class="note">Each row is a measurement this system can re-run. <strong>Age is shown
+       because a measurement whose date is hidden is how a stale number gets quoted as
+       current.</strong> These run for minutes; nothing on this page starts one.</p>
+    <div id="harnesses">loading&hellip;</div>
+  </div>
+
+  <div class="card">
+    <h2>Confidence calibration &mdash; the live pilot</h2>
+    <p class="note">Does more confidence mean more money? Win rate alone cannot answer that,
+       which is why payoff sits beside it.</p>
+    <div id="calib">loading&hellip;</div>
+  </div>
+
+  <div class="card">
+    <h2>Evidence board &mdash; what is proven, and what has drifted</h2>
+    <p class="note">A claim flagged <span class="pill warn">recurate</span> was written
+       against a sample or config that has since moved. It is shown unchanged on purpose:
+       re-curate it by hand rather than trusting the numbers in it.</p>
+    <div id="claims">loading&hellip;</div>
+  </div>
+
+  <div class="card">
+    <h2>Both boxes</h2>
+    <p class="note">One box is not the system. Every expensive failure here has been a
+       divergence while both boxes reported healthy.</p>
+    <div id="fleet">loading&hellip;</div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // Every fetch is same-origin and no-store. A cached pilot page is a lying pilot page.
+  function get(path) {
+    return fetch(path, { credentials: "same-origin", cache: "no-store" })
+      .then(function (r) {
+        if (!r.ok) throw new Error(path + " -> HTTP " + r.status);
+        return r.json();
+      });
+  }
+  function esc(v) {
+    return String(v === null || v === undefined ? "" : v)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  // null is NOT zero anywhere on this page. An unmeasured quantity renders as a dash so
+  // it can never be read as "measured, and the answer was none".
+  function num(v, digits) {
+    if (v === null || v === undefined || v === "" || !isFinite(Number(v))) return "&mdash;";
+    return Number(v).toFixed(digits === undefined ? 2 : digits);
+  }
+  function signed(v, digits) {
+    if (v === null || v === undefined || !isFinite(Number(v))) return "&mdash;";
+    var n = Number(v);
+    return '<span class="' + (n >= 0 ? "pos" : "neg") + '">' +
+           (n >= 0 ? "+" : "") + n.toFixed(digits === undefined ? 2 : digits) + "</span>";
+  }
+  function ageWords(hours) {
+    if (hours === null || hours === undefined || !isFinite(Number(hours))) return "age unknown";
+    var h = Number(hours);
+    if (h < 1) return Math.round(h * 60) + "m old";
+    if (h < 48) return h.toFixed(1) + "h old";
+    return (h / 24).toFixed(1) + "d old";
+  }
+  function fail(id, err) {
+    document.getElementById(id).innerHTML =
+      '<p class="err">could not load: ' + esc(err && err.message ? err.message : err) + "</p>";
+  }
+
+  document.getElementById("stamp").textContent =
+    "read " + new Date().toISOString().slice(11, 19) + "Z";
+
+  // ---- commitment state -------------------------------------------------
+  Promise.all([
+    get("/api/learning").catch(function (e) { return { _err: e }; }),
+    get("/api/checksystem").catch(function (e) { return { _err: e }; })
+  ]).then(function (res) {
+    var learn = res[0], chk = res[1];
+    var cards = [];
+
+    var rec = learn && learn.reconciliation;
+    if (rec) {
+      cards.push({
+        lab: "Record complete",
+        val: rec.complete ? "YES" : "NO",
+        cap: rec.closedFills + " closed = " + rec.attributedToSetups + " scored + " +
+             rec.unattributed + " unattributed + " + (rec.unscoredByDesign || 0) + " by design",
+        cls: rec.complete ? "pos" : "neg"
+      });
+      if (rec.unscoredByDesign) {
+        cards.push({
+          lab: "Unscored by design",
+          val: String(rec.unscoredByDesign),
+          cap: "executor fills recovered by backfill, deliberately not learned from (" +
+               num(rec.unscoredByDesignNetPnl) + ")"
+        });
+      }
+    }
+    if (chk && chk.performance) {
+      cards.push({ lab: "Closed trades", val: String(chk.performance.trades),
+                   cap: "the binding constraint is sample size" });
+      cards.push({ lab: "Recent losses", val: String(chk.performance.recentLosses),
+                   cap: "of the last five CLOSED, in close order" });
+    }
+    if (chk && chk.openPositions) {
+      cards.push({ lab: "Open book", val: chk.openPositions.count + " / " + chk.openPositions.limit,
+                   cap: chk.openPositions.atCapacity ? "AT CAPACITY - new setups cannot fill"
+                                                     : "room to take a setup" });
+    }
+    if (chk && chk.risk) {
+      cards.push({ lab: "Breaker", val: chk.risk.halted ? "HALTED" : "live",
+                   cap: "consecutive losses " + chk.risk.consecutiveLosses,
+                   cls: chk.risk.halted ? "neg" : "" });
+    }
+    if (!cards.length) {
+      document.getElementById("kpis").innerHTML =
+        '<p class="err">no commitment data available</p>';
+      return;
+    }
+    document.getElementById("kpis").innerHTML = cards.map(function (c) {
+      return '<div class="kpi"><div class="lab">' + esc(c.lab) + '</div>' +
+             '<div class="val ' + (c.cls || "") + '">' + esc(c.val) + "</div>" +
+             '<div class="cap">' + esc(c.cap) + "</div></div>";
+    }).join("");
+  }).catch(function (e) { fail("kpis", e); });
+
+  // ---- harnesses --------------------------------------------------------
+  get("/api/measurements").then(function (d) {
+    var m = d.measurements || {};
+    var keys = Object.keys(m);
+    if (!keys.length) {
+      document.getElementById("harnesses").innerHTML =
+        '<p class="note">no harness results on this box yet.</p>';
+      return;
+    }
+    var rows = keys.map(function (k) {
+      var e = m[k] || {};
+      var stale = e.ageHours !== null && e.ageHours !== undefined && Number(e.ageHours) > 168;
+      var pill = !e.available ? '<span class="pill dim">never run</span>'
+               : stale ? '<span class="pill warn">stale</span>'
+               : '<span class="pill ok">have result</span>';
+      var failed = (e.failedAssets && e.failedAssets.length)
+        ? '<div class="note" style="margin:2px 0 0">incomplete: ' +
+          esc(e.failedAssets.join(", ")) + " produced nothing</div>" : "";
+      return "<tr><td><strong>" + esc(k) + "</strong>" + failed + "</td>" +
+             "<td>" + pill + "</td>" +
+             '<td class="num">' + esc(e.totalTrades === undefined ? "" : e.totalTrades) + "</td>" +
+             '<td class="num">' + esc(e.gate === undefined ? "" : e.gate) + "</td>" +
+             "<td>" + esc(e.available ? ageWords(e.ageHours) : "") + "</td>" +
+             '<td class="mono" style="color:var(--muted-dim)">' + esc(e.command || "") + "</td></tr>";
+    }).join("");
+    document.getElementById("harnesses").innerHTML =
+      "<table><thead><tr><th>harness</th><th>state</th><th>trades</th><th>gate</th>" +
+      "<th>evidence age</th><th>re-run with</th></tr></thead><tbody>" + rows + "</tbody></table>";
+  }).catch(function (e) { fail("harnesses", e); });
+
+  // ---- calibration ------------------------------------------------------
+  get("/api/checksystem").then(function (d) {
+    var rows = d.calibration || [];
+    if (!rows.length) {
+      document.getElementById("calib").innerHTML =
+        '<p class="note">no scored trades in any confidence tier yet.</p>';
+      return;
+    }
+    var body = rows.map(function (t) {
+      return "<tr><td><strong>" + esc(t.tier) + "</strong></td>" +
+             '<td class="num">' + esc(t.trades) + "</td>" +
+             '<td class="num">' + num(t.winRate, 1) + "%</td>" +
+             '<td class="num">' + signed(t.totalPnl) + "</td>" +
+             '<td class="num">' + signed(t.avgPnl) + "</td>" +
+             '<td class="num">' + signed(t.avgRealizedR, 3) + "</td>" +
+             '<td class="num">' + esc(t.rTrades === undefined ? "" : t.rTrades) + "</td></tr>";
+    }).join("");
+    // Is the top tier the worst? Computed from the rendered rows, not asserted.
+    var scored = rows.filter(function (t) { return t.rTrades > 0 && t.avgRealizedR !== null; });
+    var verdict = "";
+    if (scored.length >= 2) {
+      var top = scored[scored.length - 1], bottom = scored[0];
+      if (Number(top.avgRealizedR) < Number(bottom.avgRealizedR)) {
+        verdict = '<p class="note" style="margin-top:10px"><span class="pill warn">under test</span> ' +
+          "The highest tier (" + esc(top.tier) + ", n=" + esc(top.trades) + ") is performing WORSE " +
+          "in R than the lowest (" + esc(bottom.tier) + ", n=" + esc(bottom.trades) + "). " +
+          "That is an inverse calibration and it is a reason to MEASURE, not to move the gate " +
+          "&mdash; n is small and a walk-forward beats a tier table wherever they disagree.</p>";
+      }
+    }
+    document.getElementById("calib").innerHTML =
+      "<table><thead><tr><th>tier</th><th>n</th><th>win rate</th><th>total P&amp;L</th>" +
+      "<th>avg P&amp;L</th><th>avg R</th><th>R n</th></tr></thead><tbody>" +
+      body + "</tbody></table>" + verdict;
+  }).catch(function (e) { fail("calib", e); });
+
+  // ---- evidence board ---------------------------------------------------
+  get("/api/evidence-board").then(function (d) {
+    var claims = d.claims || [];
+    if (!claims.length) {
+      document.getElementById("claims").innerHTML = '<p class="note">no claims recorded.</p>';
+      return;
+    }
+    var counts = {};
+    claims.forEach(function (c) {
+      var v = c.verdict || "unstated";
+      counts[v] = (counts[v] || 0) + 1;
+    });
+    var drifted = claims.filter(function (c) {
+      return c.staleness && c.staleness.needsRecuration;
+    });
+    var summary = Object.keys(counts).sort().map(function (k) {
+      return '<span class="pill dim" style="margin-right:6px">' + esc(k) + " " + counts[k] + "</span>";
+    }).join("");
+    var body = drifted.length
+      ? drifted.map(function (c) {
+          var why = (c.staleness.drifted || []).join("; ");
+          return "<tr><td><strong>" + esc(c.id) + "</strong><div class='note' style='margin:2px 0 0'>" +
+                 esc((c.title || "").slice(0, 110)) + "</div></td>" +
+                 "<td>" + esc(c.verdict || "") + "</td>" +
+                 "<td>" + esc(why) + "</td></tr>";
+        }).join("")
+      : "<tr><td colspan='3' class='note'>no claim is currently flagged for recuration.</td></tr>";
+    document.getElementById("claims").innerHTML =
+      "<p>" + summary + "</p>" +
+      "<table><thead><tr><th>claim</th><th>verdict</th><th>what moved under it</th></tr></thead>" +
+      "<tbody>" + body + "</tbody></table>";
+  }).catch(function (e) { fail("claims", e); });
+
+  // ---- fleet ------------------------------------------------------------
+  get("/api/fleet").then(function (d) {
+    function box(b, label) {
+      if (!b) return "<tr><td>" + esc(label) + "</td><td colspan='4' class='note'>not reported</td></tr>";
+      var reach = b.reachable === false
+        ? '<span class="pill bad">unreachable</span>'
+        : '<span class="pill ok">reachable</span>';
+      return "<tr><td><strong>" + esc(label) + "</strong></td>" +
+             "<td>" + reach + "</td>" +
+             '<td class="num">' + esc(b.gate === undefined || b.gate === null ? "&mdash;" : b.gate) + "</td>" +
+             "<td>" + (b.halted ? '<span class="pill bad">halted</span>'
+                                : '<span class="pill ok">live</span>') + "</td>" +
+             "<td>" + (b.settingsError
+                        ? '<span class="pill bad">running defaults</span>'
+                        : '<span class="pill ok">saved config</span>') + "</td></tr>";
+    }
+    document.getElementById("fleet").innerHTML =
+      "<table><thead><tr><th>box</th><th>reach</th><th>gate</th><th>trading</th>" +
+      "<th>config</th></tr></thead><tbody>" +
+      box(d.thisBox, "this box") + box(d.peer, "peer") + "</tbody></table>";
+  }).catch(function (e) { fail("fleet", e); });
+})();
+</script>
+</body>
+</html>
