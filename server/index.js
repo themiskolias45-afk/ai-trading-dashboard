@@ -9671,7 +9671,39 @@ cron.schedule("0 21 * * 0", async () => {
     closedConsidered: closed.length - unattributedClosed,
     closedTotal: closed.length,
     unattributedClosed,
+    // THE PAYOFF DIMENSION, published beside the win rate that ranked this setup.
+    //
+    // This cron ranks on WIN RATE ONLY, and win rate cannot see payoff at all: a setup
+    // that wins 40% of the time at 3R is excellent and this argmin calls it the worst
+    // thing on the board. R is the unit in which these fills are commensurable - lots
+    // were pinned by fixedLotSize and by the broker's volume_min on most fills, so
+    // dollars measure the sizing pipeline rather than the setup.
+    //
+    // REPORTED, NOT APPLIED - the same shape as the learning-boost floor. Proposal
+    // morning-8k38nu asked for this to SUPPRESS the recommendation when R is positive.
+    // It is published instead, for a reason the proposal's own evidence supplies: it
+    // argued MOMENTUM was "+1.0669R over 12 fills" on 2026-09-13, and by 2026-09-17 the
+    // same record read -0.9331R over 14 - two more losses flipped its sign inside four
+    // days. A statistic that moves that fast should not be given a veto over a warning.
+    // Publishing both lets the reader see the contradiction; suppressing hides a warning
+    // that may well be correct, and suppression is subtraction.
+    //
+    // null, never 0, when there is no R record - an unscorable setup must not read as a
+    // flat zero and average in as if it had been measured.
+    totalRealizedR: Number.isFinite(Number(learning?.setupStats?.[worstSetup]?.totalRealizedR))
+      ? Number(learning.setupStats[worstSetup].totalRealizedR) : null,
+    rTrades: Number(learning?.setupStats?.[worstSetup]?.rTrades) || 0,
     recommendation: `${worstSetup} has ${(worstWR * 100).toFixed(1)}% WR — review and tighten entry criteria or disable. Learning engine has already applied ${getLearningBoost(worstSetup)} confidence adjustment.`
+      + (() => {
+          const rec = learning?.setupStats?.[worstSetup];
+          const r = Number(rec?.totalRealizedR);
+          if (!rec || !Number.isFinite(r) || !(Number(rec.rTrades) > 0)) {
+            return ` (No R record for this setup, so payoff is unmeasured — the ranking above is win rate alone.)`;
+          }
+          return r > 0
+            ? ` NOTE: it is net POSITIVE in R — +${r.toFixed(4)}R over ${rec.rTrades} fill(s). It won less often than half and still won well, so read "underperforming" as a statement about win rate only.`
+            : ` Its R record agrees: ${r.toFixed(4)}R over ${rec.rTrades} fill(s).`;
+        })()
       + (unattributedClosed ? ` (${unattributedClosed} closed trade(s) carry no real setup name and were not considered.)` : "")
   };
 
