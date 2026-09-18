@@ -1383,6 +1383,39 @@ function checkLearningIntegrity(root = ROOT) {
   if (closed.length === counted) return;
 
   const unnamed = closed.filter(t => !t.setup || ["WAIT", "NONE", "UNKNOWN"].includes(String(t.setup).toUpperCase()));
+
+  // THE SECOND REASON THE TWO NUMBERS DIFFER, AND THE ONE THIS CHECK USED TO MISS.
+  //
+  // Executor fills (magics 20260902/3/4 - FVG_CONTINUATION, TK_SWING_PULLBACK,
+  // CRT_FVG) reach the journal through the ledger backfill, which DELIBERATELY does
+  // not call updateLearning: those increments are irreversible and would rewrite the
+  // calibration record against trades that closed days earlier. server/index.js
+  // already exposes them as `unscoredByDesign` on /api/learning; this check did not
+  // know about them, so on the VPS - where every gap row is an executor row and none
+  // is unnamed - it fell through to "a reason this check cannot see" and told a
+  // reader to go investigate a number that is working exactly as designed.
+  //
+  // Matched on the setup NAME as well as the magic: rows written before the backfill
+  // branch carried the model name and no magic field.
+  const EXECUTOR_SETUPS = ["FVG_CONTINUATION", "TK_SWING_PULLBACK", "CRT_FVG"];
+  const EXECUTOR_MAGICS = [20260902, 20260903, 20260904];
+  const unscoredByDesign = closed.filter(t =>
+    EXECUTOR_SETUPS.includes(String(t.setup || "").toUpperCase())
+    || EXECUTOR_MAGICS.includes(t.magic));
+
+  // Everything the two records should agree on once both deliberate exclusions are
+  // taken out. Verified 2026-09-18 on BOTH boxes: laptop 24-1-4=19 against counted 19,
+  // VPS 33-0-9=24 against counted 24. Exact, not approximate.
+  const explained = closed.length - unnamed.length - unscoredByDesign.length;
+  if (explained === counted) {
+    finding("INFO", "local",
+      `journal has ${closed.length} closed trades, learning counts ${counted} - fully accounted`,
+      `${unnamed.length} carry no real setup name and ${unscoredByDesign.length} are executor ` +
+      "fills the ledger backfill records without scoring (both exclusions are deliberate). " +
+      `${closed.length} - ${unnamed.length} - ${unscoredByDesign.length} = ${counted}. Nothing is missing`,
+      "no action - /api/learning exposes the same split as unscoredByDesign");
+    return;
+  }
   finding("INFO", "local",
     `journal has ${closed.length} closed trades, learning counts ${counted}`,
     unnamed.length

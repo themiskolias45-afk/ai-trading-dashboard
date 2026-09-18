@@ -68,7 +68,24 @@ const HTTP_TIMEOUT_MS = 8000;
 /* Answering slower than this is reported as SLOW rather than waited on quietly. Half the
    probe timeout: past it, an ordinary busy moment is enough to turn the panel red. */
 const SLOW_MS = 4000;
-const CONCURRENCY = 4;
+// ONE AT A TIME. Four concurrent probes against a single-threaded Node server do not
+// measure the server, they measure each other: each heavy handler blocks the event loop
+// while the other three sit in their own 8s window, and they time one another out.
+//
+// PROVEN, not reasoned. On 2026-09-18 this audit reported /api/features "slow, 7233ms"
+// on the laptop and "unreachable, no answer in 8s" on the VPS. Probed alone, the same
+// route answers in 3ms. /api/ai-employees: "no answer in 8s" in-audit, 18ms alone.
+// /api/strategy-settings: "ECONNRESET" in-audit, 28ms alone. The failures also arrive in
+// alphabetically CONTIGUOUS blocks - ai-employees, deep-plan, evidence-board, features -
+// which is the signature of one blocked moment sweeping a sorted list, not of four
+// independently broken routes.
+//
+// Serial costs wall-clock and nothing else: 57 probes at the measured worst case
+// (/api/evidence-board, 2.1s for an 81KB payload) is about a minute. The timeout and
+// SLOW_MS are deliberately UNCHANGED - widening them would hide a genuinely slow route,
+// which is the opposite of the point. Removing the contention is the fix; the
+// thresholds still mean what they said.
+const CONCURRENCY = 1;
 /* Unchanged for this many DISTINCT days, having changed at least once before,
    is the frozen signal. Seven days rather than two because several of these
    panels legitimately sit still through a quiet week — this engine fills about
@@ -142,7 +159,15 @@ function cadenceFor(endpoint) {
    system is healthy in the exact words it uses to say something is broken.
    They stay probed - an unreachable or empty config IS a defect - but the
    staleness and frozen checks do not apply. */
-const CONFIG_ROUTES = ["/api/settings", "/api/strategy-settings"];
+// /api/lab-catalog is the same category and was added 2026-09-18 after it had sat
+// AMBER "byte-identical for 11 days" on both boxes. It is not data: the handler
+// (server/index.js, /api/lab-catalog) serves STRATEGIES, their parameter ranges,
+// EXEC_SPEC, the available symbols, timeframes and sessions - a description of what
+// the workbench may ASK FOR. It changes when a strategy is added to the code and at
+// no other time, so "unchanged for 11 days" is the correct reading of a codebase in
+// which nobody added a strategy for 11 days. Flagging it trains the reader to ignore
+// the frozen signal on the panels where it would mean something.
+const CONFIG_ROUTES = ["/api/settings", "/api/strategy-settings", "/api/lab-catalog"];
 function isConfigRoute(endpoint) {
   const routePath = String(endpoint).split("?")[0].replace(/\/+$/, "");
   return CONFIG_ROUTES.includes(routePath);
