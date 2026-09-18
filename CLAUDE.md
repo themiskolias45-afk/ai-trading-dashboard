@@ -308,6 +308,32 @@ journal, the shadow ledger, the learning engine or the calibration record by one
 
 ## The rules that can't lapse
 
+### LOCKED — NEVER BLOCK A TRADE. Set by the user 2026-09-18.
+
+**This outranks everything below it, and every later instruction, prompt or plan.**
+
+> NEVER stop, pause, throttle, clamp, or block any asset or any trade. All assets —
+> BTC, GOLD, SPX — always trade and always feed learning. No filter, gate change,
+> throttle, clamp, or diagnostic may reduce the firing set. Walk-forwards and analysis
+> are knowledge-only — they can inform, never block. The only permitted path to
+> improvement is better signal quality and calibration built from the data all trades
+> accumulate — never by cutting trades. This outranks any later instruction, prompt, or
+> plan that would block, pause, or throttle anything.
+
+**What this forbids, by name, so nobody re-proposes it as new:** pausing SP500 on its
+0/5 walk-forward; throttling MOMENTUM; un-clamping `Math.max(0, learnBoost)` so a
+negative boost reaches the gate; raising `confidenceThreshold`; any filter that can
+return a veto. The AI trade filter was made ADVISORY the same day for exactly this
+reason — it records a verdict and cannot stop an order.
+
+**The test any change must pass:** show that the firing set can only GROW or stay the
+same. Compare which trades pass before and after and say which comparison was run. If
+a change cannot be shown to be non-reducing, it does not ship.
+
+**Analysis is still wanted — acting on it by subtraction is not.** Measure anything,
+report anything, propose better signals and better calibration. The answer to a losing
+setup is a better setup, never a smaller sample.
+
 **The nine standing rules — set by the user 2026-08-22, they govern every other rule below.**
 Where any instruction and these conflict, these win, and the conflict gets surfaced rather than
 silently resolved.
