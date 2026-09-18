@@ -11465,6 +11465,84 @@ app.post("/api/claude-approve-trade", async (req, res) => {
     `Reply with ONLY valid JSON, no markdown:\n` +
     `{"approved": true, "reason": "one sentence max", "risk": "LOW"}`;
 
+  // ── ADVISORY ONLY. THE VERDICT IS RECORDED, NEVER ENFORCED. ──────────────────
+  //
+  // Set by the operator 2026-09-18: this filter must never stop a trade. It used to
+  // return `approved:false` and mt5_bridge.py:2429 turned that into "do not place
+  // the order", so an Anthropic billing problem could silently stop the system
+  // trading - a dependency with no business sitting on the execution path.
+  //
+  // `approved` is now ALWAYS true. The model's real opinion rides in `advisory` and
+  // is written to the AI_FILTER gate ledger from HERE, server-side, because the
+  // bridge's own writer is behind `if not approved` and can never fire again. The
+  // laptop ledger had held ZERO AI_FILTER rows in its life (0 of 7047) and the VPS
+  // only 3, so almost nothing historical is being reshaped.
+  //
+  // Keeping the verdict is the point: it is the only way to find out later whether
+  // the filter was ever right about a trade it would have blocked.
+  const emitAdvisory = (wouldApprove, reason, risk, via) => {
+    const flagged = wouldApprove === false;
+    console.log(
+      `[AI-filter] ${symbol} ${signal.signal}: ${flagged ? "WOULD REJECT" : "APPROVED"}`
+      + `${via ? " (" + via + ")" : ""} [${risk}] — ${reason}`
+      + (flagged ? "  ADVISORY ONLY — the trade proceeds." : ""));
+    if (flagged) {
+      // SETUP IS MANDATORY OR THE ROW IS SILENTLY DROPPED. unscorableReason()
+      // (server/rejection_log.js:118) returns "no setup name" and logGateRejection
+      // returns false without writing. The first version of this helper omitted it,
+      // which would have made this change a NET LOSS of evidence - the bridge's own
+      // writer is behind `if not approved` and can never fire again. Caught by the
+      // code-reviewer running the real module rather than reading it.
+      //
+      // ticker/sourceSymbol are the YAHOO ticker and the bars' own symbol, never the
+      // broker symbol. All 7047 existing rows carry a Yahoo ticker, and mt5_bridge.py
+      // refuses to guess sourceSymbol from the broker symbol for a measured reason:
+      // GC=F futures sit ~$51 from XAUUSD spot, so the wrong one scores a confidently
+      // wrong verdict. Null beats wrong.
+      //
+      // timeframe also carries the dedupe scope (gate|sourceSymbol|timeframe), so a
+      // null here would collapse the D1 and H4 variants of one asset into a single
+      // scope and let them suppress each other.
+      try {
+        logGateRejection({
+          gate: "AI_FILTER", side: "bridge",
+          setup:        signal.setup,
+          ticker:       signal.ticker ?? null,
+          sourceSymbol: signal.sourceSymbol ?? null,
+          timeframe:    signal.setupTimeframe ?? null,
+          dataSource:   signal.dataSource ?? null,
+          direction:    signal.signal,
+          entry, stop, target,
+          rr:           signal.rr ?? null,
+          confidence:   signal.confidence ?? null,
+          strength:     signal.strength ?? null,
+          trend:        signal.trend ?? null,
+          rsi:          signal.indicators?.rsi ?? null,
+          // The grade and reason ride in `label`: normaliseRow keeps label and has no
+          // `reason` field at all, so anything put there would be dropped.
+          label: `ADVISORY [${risk}] ${reason}`,
+        });
+      } catch (ledgerError) {
+        console.error("[AI-filter] advisory verdict NOT written to the ledger:",
+                      ledgerError.message);
+      }
+    } else {
+      // WITHOUT THIS THE GATE READS AS DEAD AND MANUFACTURES A CRITICAL ALARM.
+      // logGateRejection increments gateStats.killed before the scorable check, and
+      // nothing else ever calls noteGatePass("AI_FILTER"). At 20 kills with 0 passes
+      // tasks/gate_health.cjs reports "the gate is dead and is also not logging" at
+      // CRITICAL. This filter now passes every trade, so recording the passes is also
+      // simply true.
+      try { noteGatePass("AI_FILTER"); } catch (_) { /* stubbed when the ledger is down */ }
+    }
+    // The bridge logs `Claude AI: APPROVED [risk] - reason`, so an unmarked rejection
+    // reason would read as an approval FOR that reason. The prefix keeps the bridge
+    // log honest without changing a single decision.
+    return { approved: true, enforced: false, risk,
+             reason: flagged ? `ADVISORY WOULD-REJECT: ${reason}` : reason,
+             advisory: { wouldApprove: !flagged, reason, risk } };
+  };
+
   try {
     const msg = await anthropic.messages.create({
       model: "claude-opus-5",
@@ -11493,9 +11571,12 @@ app.post("/api/claude-approve-trade", async (req, res) => {
     aiFilterHealth.lastOkAt = new Date().toISOString();
     aiFilterHealth.consecutiveFailures = 0;
     aiFilterHealth.lastError = null;
-    console.log(`[AI-filter] ${symbol} ${signal.signal}: ${approved ? "APPROVED" : "REJECTED"} — ${reason}`);
-    res.json({ approved, reason, risk });
+    res.json(emitAdvisory(approved, reason, risk, null));
   } catch (e) {
+    // If the response already went out, the failure was in res.json itself and NOT in
+    // the model call. Re-entering here would spawn the CLI, count a second kill and
+    // throw ERR_HTTP_HEADERS_SENT on a trade that has already been answered.
+    if (res.headersSent) return;
     // The API rail failed. Before giving up and auto-approving, try the rail that
     // every other component in this system already uses.
     const viaCli = await runAiFilterViaCli(prompt);
@@ -11507,8 +11588,8 @@ app.post("/api/claude-approve-trade", async (req, res) => {
       aiFilterHealth.consecutiveFailures = 0;
       aiFilterHealth.lastError = null;
       const reason = viaCli.reason ?? "No reason given";
-      console.log(`[AI-filter] ${symbol} ${signal.signal}: ${viaCli.approved ? "APPROVED" : "REJECTED"} (via CLI/subscription) — ${reason}`);
-      return res.json({ approved: viaCli.approved, reason, risk: viaCli.risk ?? "MEDIUM" });
+      return res.json(emitAdvisory(viaCli.approved, reason, viaCli.risk ?? "MEDIUM",
+                                   "via CLI/subscription"));
     }
 
     // Both rails are down. Unchanged behaviour: fail OPEN. Blocking trades because
