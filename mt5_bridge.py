@@ -115,6 +115,10 @@ EXECUTOR_MAGICS = {
     20260903: "TK_SWING_PULLBACK",
     20260904: "CRT_FVG",
 }
+# Every magic this SYSTEM places, the bridge's own included. Used by the ledger
+# backfill, which must recover a lost bridge fill as readily as a lost executor one.
+OUR_MAGICS = dict(EXECUTOR_MAGICS)
+OUR_MAGICS[MAGIC_NUMBER] = "SmartEntry_bridge"
 AUTO_MODE      = "--auto" in sys.argv
 TERMINAL_PATH  = os.environ.get("MT5_TERMINAL_PATH", "")          # pin to one MT5 install when running multiple terminals
 ACCOUNT_TAG    = os.environ.get("ACCOUNT_TAG", "")                # identifies this instance in logs + server posts (dual-account setups)
@@ -1955,7 +1959,18 @@ def place_order(symbol, signal_type, entry, stop, target, risk_amount=None,
                 },
             }, timeout=JOURNAL_REQUEST_TIMEOUT_S)
         except Exception as e:
-            log(f"Could not POST trade-opened to server: {e}", YELLOW)
+            # RED, not YELLOW. This is the moment a live trade stops existing as far
+            # as the system is concerned - the order is filled in MT5 and nothing
+            # durable records it. It was logged yellow beside cosmetic warnings for
+            # the whole life of this file.
+            log(f"Could not POST trade-opened to server: {e}", RED)
+            buffer_unreported_open(result.order, symbol, signal_type, price,
+                                   stop, target, lots, signal_context)
+        # UNCHANGED, DELIBERATELY. known_positions is in-process only and dies with
+        # the bridge; the buffer above is what survives. And `return True` stays:
+        # the order IS filled, so reporting failure here would make the caller
+        # believe no trade exists while MT5 holds one. A journal outage must never
+        # block or unwind a trade.
         known_positions.add(result.order)
         return True
     else:
@@ -3328,6 +3343,175 @@ BACKFILL_LOOKBACK_DAYS = 45
 # traffic and the log quiet.
 backfill_posted = set()
 
+# THE OPEN THAT NEVER REACHED THE JOURNAL.
+#
+# report_trade() POSTs /api/trade-opened after a fill. When that POST failed it
+# logged a warning and returned True, and the only record of the trade was
+# known_positions - an in-process set that dies with the bridge. The trade was live
+# in MT5 and absent from the journal, and reconcile_open_trades() could never find
+# it: that function starts from fetch_open_journal_entries(), so its recovery domain
+# IS the set of rows already open. A trade with no OPEN row sits outside it forever,
+# however many sweeps run.
+#
+# A RUNTIME DATA FILE, not a new moving part. Same class as all_trades_ledger.jsonl
+# and the agent runner's own run marker: a line appended by existing code, not a
+# script, check, hook or report generator. Named here rather than slipped in.
+#
+# Path derived from this file's own location - never a per-box literal. The two
+# boxes hold different repo roots and a hardcoded C:\Users\User\... path is exactly
+# the class of bug that made session-stop.ps1 inert on the VPS for days.
+UNREPORTED_OPENS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                     "tasks", "unreported_opens.jsonl")
+
+
+def buffer_unreported_open(ticket, symbol, direction, price, stop, target,
+                           volume, signal_context):
+    """Durably remember a filled trade whose journal POST failed.
+
+    CANNOT RAISE. It is called from inside report_trade's success path, after the
+    order is filled. An exception here would propagate out of a function whose
+    caller reads it as "was the trade placed", so every failure is swallowed and
+    logged - losing the buffer line is bad, turning a filled trade into an
+    exception is worse.
+
+    Append-only: one JSON line, never a rewrite. Pruning happens only in
+    drain_unreported_opens(), and only for tickets confirmed present in the journal.
+    """
+    try:
+        os.makedirs(os.path.dirname(UNREPORTED_OPENS_PATH), exist_ok=True)
+        row = {
+            "ticket":     ticket,
+            "symbol":     symbol,
+            "type":       direction,
+            "price":      round(float(price), 5) if price is not None else None,
+            "sl":         stop,
+            "tp":         target,
+            "volume":     volume,
+            "account":    ACCOUNT_TAG or "default",
+            "signalContext": signal_context,
+            "bufferedAt": datetime.now(timezone.utc).isoformat(),
+        }
+        with open(UNREPORTED_OPENS_PATH, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(row) + "\n")
+        log(f"Buffered unreported open #{ticket} — the reconcile sweep will "
+            f"deliver it to the journal.", CYAN)
+    except Exception as exc:
+        log(f"COULD NOT BUFFER unreported open #{ticket} ({exc}). The trade is live "
+            f"in MT5 and this box has no durable record of it.", RED)
+
+
+def read_unreported_opens():
+    """Every buffered row. [] when the file is absent or unreadable."""
+    if not os.path.exists(UNREPORTED_OPENS_PATH):
+        return []
+    rows = []
+    try:
+        with open(UNREPORTED_OPENS_PATH, "r", encoding="utf-8") as handle:
+            for line in handle:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rows.append(json.loads(line))
+                except ValueError:
+                    continue        # a torn final line is normal on an append-only file
+    except OSError as exc:
+        log(f"Could not read the unreported-opens buffer ({exc}).", YELLOW)
+        return []
+    return rows
+
+
+def prune_unreported_opens(confirmed_tickets):
+    """Drop only the lines whose ticket is CONFIRMED present in the journal.
+
+    Backed up before the first rewrite, then written via a temp file and
+    os.replace, so an interruption leaves either the old file or the new one and
+    never a half-written buffer. A line that was not confirmed landed is always
+    kept - the failure mode this whole change exists to stop is a trade record
+    disappearing, and a buffer that prunes optimistically would recreate it.
+    """
+    if not confirmed_tickets or not os.path.exists(UNREPORTED_OPENS_PATH):
+        return
+    try:
+        backup = UNREPORTED_OPENS_PATH + ".bak-" + datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        if not os.path.exists(backup):
+            with open(UNREPORTED_OPENS_PATH, "r", encoding="utf-8") as src:
+                payload = src.read()
+            with open(backup, "w", encoding="utf-8") as dst:
+                dst.write(payload)
+            if not os.path.exists(backup):
+                log("Buffer backup could not be written — not pruning.", YELLOW)
+                return
+        kept = [r for r in read_unreported_opens()
+                if r.get("ticket") not in confirmed_tickets]
+        tmp = UNREPORTED_OPENS_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as handle:
+            for r in kept:
+                handle.write(json.dumps(r) + "\n")
+        os.replace(tmp, UNREPORTED_OPENS_PATH)
+        log(f"Buffer pruned: {len(confirmed_tickets)} delivered open(s) removed, "
+            f"{len(kept)} still pending.", CYAN)
+    except Exception as exc:
+        log(f"Could not prune the unreported-opens buffer ({exc}) — leaving it "
+            f"intact; a re-drain is harmless, a lost line is not.", YELLOW)
+
+
+def drain_unreported_opens():
+    """Deliver buffered opens to the journal, then forget the ones that landed.
+
+    IDEMPOTENT BY CONSTRUCTION. Every ticket already in the journal - OPEN or
+    CLOSED - is skipped without a POST and counted as delivered, so a re-drain
+    cannot create a duplicate OPEN row. journal_keys is (ticket, account), the same
+    key the server dedupes on.
+
+    THE BREAKER IS NOT TOUCHED HERE, and does not need to be. Restoring the OPEN row
+    is all that is required: reconcile_open_trades() then finds it by its ordinary
+    path and calls record_closed_outcome() behind the EXISTING last_counted_close
+    gate when it closes. These are this bridge's own fills from this session, so
+    they are exactly the trades that gate was built to count once.
+    """
+    buffered = read_unreported_opens()
+    if not buffered:
+        return
+
+    journal_keys = fetch_journal_keys()
+    if journal_keys is None:
+        return          # journal unreachable: never POST blind, the buffer waits
+
+    tag = ACCOUNT_TAG or "default"
+    delivered, posted = set(), 0
+    for row in buffered:
+        ticket = row.get("ticket")
+        if ticket is None:
+            continue
+        if (ticket, row.get("account") or tag) in journal_keys or (ticket, tag) in journal_keys:
+            delivered.add(ticket)       # already journaled - nothing to do, safe to forget
+            continue
+        try:
+            res = requests.post(f"{SERVER_URL}/api/trade-opened", json={
+                "ticket":  ticket,
+                "symbol":  row.get("symbol"),
+                "type":    row.get("type"),
+                "price":   row.get("price"),
+                "sl":      row.get("sl"),
+                "tp":      row.get("tp"),
+                "volume":  row.get("volume"),
+                "account": row.get("account") or tag,
+                "signalContext": row.get("signalContext"),
+            }, timeout=JOURNAL_REQUEST_TIMEOUT_S)
+            res.raise_for_status()
+        except Exception as exc:
+            log(f"Could not deliver buffered open #{ticket} ({exc}) — keeping it "
+                f"buffered for the next sweep.", YELLOW)
+            continue
+        delivered.add(ticket)
+        posted += 1
+        log(f"DELIVERED buffered open #{ticket} ({row.get('symbol')}) to the journal.", GREEN)
+
+    if posted:
+        log(f"Recovered {posted} open(s) the journal never received.", CYAN)
+    prune_unreported_opens(delivered)
+
 
 def fetch_journal_keys():
     """Every (ticket, account) pair the journal holds, OPEN or CLOSED.
@@ -3402,7 +3586,14 @@ def backfill_executor_closes():
                     continue            # a torn final line is normal on an append-only file
                 if row.get("account") != login:
                     continue
-                if row.get("magic") not in EXECUTOR_MAGICS:
+                # OUR magics, which INCLUDES this bridge's own. It read
+                # EXECUTOR_MAGICS alone, so a trade placed by THIS file and lost to a
+                # failed trade-opened POST was outside the only sweep that could have
+                # recovered it - the executors were covered and the bridge was not.
+                # MAGIC_NUMBER added 2026-09-18. Rows still land as backfill:true,
+                # so they are journalled and never scored; see the PILOT-001
+                # no-scoring-of-backfill guardrail.
+                if row.get("magic") not in OUR_MAGICS:
                     continue
                 close_time = row.get("closeTime") or ""
                 if close_time < cutoff:
@@ -3652,6 +3843,12 @@ def main():
         backfill_executor_closes()
     except Exception as exc:
         log(f"Startup executor backfill failed ({exc}) — continuing without it.", YELLOW)
+    # Its own try, for the same reason as the two above: delivering a buffered open
+    # must not be able to abort reconciliation, the backfill, or trading.
+    try:
+        drain_unreported_opens()
+    except Exception as exc:
+        log(f"Startup buffered-open drain failed ({exc}) — buffer kept intact.", YELLOW)
     last_reconcile_at = time.time()
 
     # Adopt the positions already running under our magic, so the first loop sees them
@@ -3742,6 +3939,10 @@ def main():
                     backfill_executor_closes()
                 except Exception as exc:
                     log(f"Executor backfill sweep failed ({exc}) — will retry.", YELLOW)
+                try:
+                    drain_unreported_opens()
+                except Exception as exc:
+                    log(f"Buffered-open drain failed ({exc}) — buffer kept intact.", YELLOW)
         except KeyboardInterrupt:
             log("Shutting down MT5 bridge…", YELLOW)
             mt5.shutdown()
