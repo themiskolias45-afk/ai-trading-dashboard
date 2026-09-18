@@ -73,8 +73,8 @@ claimed all of them:
   4H + 1H"*, which states a safety property the engine does not have and which a user
   reasonably read as "it will not buy into a bearish 4H/1H". Corrected 2026-08-31 after
   being asked why it buys when every lower timeframe is red. What `generateSignal`
-  actually does (`generateSignalMTF`, `server/index.js:3541`; the plain
-  `generateSignal` is at `:2156`. This said `:2814-2911` until 2026-09-02 — that
+  actually does (`generateSignalMTF`, `server/index.js:3546`; the plain
+  `generateSignal` is at `:2161`. This said `:2814-2911` until 2026-09-02 — that
   range is neither function):
   - Daily + H4 **agree** → 72 / 88 / 95.
   - Daily + H4 + H1 **all agree** → 88 / 97. This is a **BONUS branch, not a gate.**
@@ -89,8 +89,8 @@ claimed all of them:
     "H4-only cannot fire without boosts" is true again — but it is true by CONFIGURATION,
     not by construction, and it silently reverses the moment the gate drops below 68.
   **Only ONE branch anywhere lets `h1` touch the confidence maths** — the
-  triple-alignment bonus at `server/index.js:3684` — plus a display copy in the
-  payload at `server/index.js:4065`. This line claimed "`h1` appears exactly TWICE in
+  triple-alignment bonus at `server/index.js:3689` — plus a display copy in the
+  payload at `server/index.js:4070`. This line claimed "`h1` appears exactly TWICE in
   the whole engine" until 2026-09-06, when it appeared **31 times** and both cited
   lines had rotted onto unrelated code. **Do not restore a raw count here**: the count
   is the part that went stale, the PROPERTY is the part that matters, and the property
@@ -101,7 +101,7 @@ claimed all of them:
   a bearish M15 are DISPLAY ONLY. Whether H1 disagreement predicts anything is
   UNMEASURED — see `tasks/logs/h1_agreement.txt`. Do not add an H1 veto on intuition:
   that is subtraction, it spends the scarce resource, and rule 3 governs it.
-- **"STRONG UPTREND" is EMA STACKING, NOT CANDLE DIRECTION** (`index.js:2035`;
+- **"STRONG UPTREND" is EMA STACKING, NOT CANDLE DIRECTION** (`index.js:2040`;
   said `:1711`, then `:1798` — both rotted by insertions above them):
   `price > ema20 && > ema50 && > ema200`. On 2026-08-31 Gold printed STRONG UPTREND
   while sitting **$1.55 above its 20 EMA** with MACD histogram −5.35 and
@@ -150,7 +150,7 @@ claimed all of them:
     used to answer asset-specific questions. At gate 70 / 320: XAUUSD 5/5 +0.051,
     BTCUSD 5/5 +0.172, SP500 4/5 −0.042.
 - **Gold's squeeze cohort is pinned to a LITERAL 70** (`GOLD_SQUEEZE_MODERATE_CONFIDENCE`,
-  `server/index.js:3634`; said `:3486`, then `:3553`, then `:3650` — rotted three times, twice by
+  `server/index.js:3639`; said `:3486`, then `:3553`, then `:3650` — rotted three times, twice by
   edits made the same day) — it
   did NOT follow the gate down. At 65 it still clears
   comfortably; it silently stops firing only if the gate is ever raised ABOVE 70. Moving
@@ -319,3 +319,72 @@ claimed all of them:
 - Setup health: GET http://localhost:3001/api/setup-health (which setups to take or avoid today)
 - Daily plan API: GET http://localhost:3001/api/daily-plan (structured JSON for all assets)
 - TV screenshots: node tv_screenshot.cjs [--4h] [--symbol btc|gold|spx] → dashboard/screenshots/
+
+---
+
+## Measured 2026-09-18 — the fleet's own instruments
+
+**The watchdog restarts the server, and it used to do so on one slow reply.**
+`tasks/watchdog_vps.bat` (VPS, Scheduled Task `SmartEntryWatchdog`) probes
+`/api/signals` and restarts `SmartEntryServer` when it fails. Until 2026-09-18 that
+was ONE failure at `--max-time 5` on a 60s cycle: **98 `SERVER DOWN` events in
+`tasks/logs/watchdog_log.txt`**, 84 of them followed by `Server recovered OK` about
+15s later, on days Windows Error Reporting holds no crash at all. Those are slow
+replies, not deaths, and each one produced `WinError 10061 actively refused` in the
+bridge log and blank dashboard panels. Now `SERVER_STRIKES_NEEDED=3`,
+`SERVER_CHECK_TIMEOUT=15`, cycle 30s, and `BRIDGE_STARTUP_GRACE_CYCLES=6` to hold the
+documented ~180s bridge grace at the shorter cycle. A dead server still recovers in
+~90s, a hung one in ~135s. Checkable: `Select-String -Path tasks\logs\watchdog_log.txt
+-Pattern 'SERVER DOWN'`.
+
+**`content_quality_audit.cjs` used to fail its own probes.** `CONCURRENCY` was 4
+against a single-threaded server with an 8s timeout, so heavy handlers timed each
+other out: `/api/features` reported "no answer in 8s" while answering in **3ms** when
+probed alone, and failures arrived in alphabetically contiguous blocks. `CONCURRENCY`
+is now 1; `HTTP_TIMEOUT_MS` and `SLOW_MS` are deliberately unchanged, so a genuinely
+slow route is still reported. Laptop red 37 -> 0, VPS 6 -> 0.
+
+**A NEGATIVE LEARNING BOOST NEVER REACHES THE GATE.** `server/index.js`:
+`const appliedBoost = Math.max(0, learnBoost)`. The true value is computed, logged and
+served on `/api/learning`, but only a POSITIVE boost is added to confidence. Combined
+with the per-box `LEARNING_MIN_TRADES = 5` floor, **the live applied boost on both
+boxes is currently 0 for every setup.** Do not read "MOMENTUM scores -6" as a
+throttle; the signal's own reason string says "REPORTED ONLY, not subtracted".
+
+**`run_walkforward` runs on the broken ruler.** The chain is `run_walkforward` ->
+`tasks/mtf_walkforward.cjs` -> `tasks/_replay_mtf.cjs`, and `mtf_walkforward.cjs` does
+NOT set `MTF_MAX_HOLD`, so every run uses the default `MAX_HOLD = 40` — the condition
+CLAUDE.md's permitted-repair #2 says voids backtest numbers. It also stubs
+`getLearningBoost: () => 0` (`_replay_mtf.cjs:542`), so any change to the boost cannot
+be measured by a walk-forward at all. Quote its numbers with both caveats attached.
+
+**Executor fills do not reach the journal at fill time, by design.**
+`tasks/fvg_executor.py` (all three models, `--model fvg|tk|crt`) only GETs
+`/api/mt5/control` and `/api/risk-status`; it never POSTs. Its fills arrive through
+the HOURLY `SmartEntry Trade Ledger Reconcile` -> `tasks/all_trades_ledger.jsonl` ->
+the bridge's `backfill_executor_closes()` on the 300s timer. Measured end to end on
+#2048943076: closed 16:33:30Z, ledger 17:31:03Z, journal 17:34:52Z — **61m 22s**, and
+the row lands CLOSED with a real P&L and no confidence. Two consequences: executor
+rows are excluded from the calibration tiers (no confidence to tier), and
+`updateLearning` is deliberately not called for them (`unscoredByDesign` on
+`/api/learning`).
+
+**`fetch_journal_keys()` includes OPEN rows** (`mt5_bridge.py:3517`) and
+`backfill_executor_closes` skips any `(ticket, account)` it returns
+(`mt5_bridge.py:3605`). So an OPEN journal row for an executor ticket would suppress
+its own close forever — `reconcile_open_trades` cannot rescue it either, because
+`opened_by_this_bridge` requires `magic == MAGIC_NUMBER` (`:3146`). Anything that
+starts journalling executor fills at fill time must change that skip first.
+
+**tvremix (TradingView Remix MCP) needs no API key.** Laptop: `tvremix` at project
+scope in `.mcp.json`, OAuth, Connected. VPS: served by the account-level
+`claude.ai remix` connector, already authorized, and it works on the `claude -p` agent
+rail. The VPS also carries a duplicate `tvremix` entry that reads "Needs
+authentication" and is deliberately left in place.
+
+**`keys.env` never reaches Claude Code's environment.** `server/index.js` loads it into
+`process.env` for the SERVER, but the MCP servers are children of Claude Code, which
+does not read it — so `${BRAVE_API_KEY}` and `${EXA_API_KEY}` in `.mcp.json` expand to
+nothing on the VPS and always have. A key for an MCP server must go in a User-scope
+Windows variable or a settings `env` block. Full-tree grep finds four references to
+`keys.env` on the VPS and every one of them is a guard, not a loader.
