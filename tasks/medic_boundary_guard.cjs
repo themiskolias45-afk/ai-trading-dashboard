@@ -254,13 +254,210 @@ function selftest() {
   return bad ? 1 : 0;
 }
 
+// -- --cycle : the 24/7 boss loop -------------------------------------------
+//
+// Enabled by the operator 2026-09-18 at PT2H. One scheduled task calls this; there is
+// no other new file, because /auto already exists and is already bounded ("NOTHING
+// ELSE auto-fixed") and the snapshot/compare/Telegram machinery is already here.
+//
+// WHY ONE RICH CYCLE AND NOT SEVERAL THIN ONES. Measured on this box: a cycle costs
+// ~211k tokens, of which 149k is cache_read - the boot context, paid before any work
+// happens. That cost is nearly fixed per cycle, so bundling the investigation, the
+// performance review and the improvement ideas into ONE run is close to free, while
+// running three separate cycles would pay the boot cost three times.
+//
+// THE DIVISION OF LABOUR IS THE SAFETY PROPERTY. The model writes the narrative. The
+// SCRIPT decides what pages the operator - halted, fleet divergence, bridge silence,
+// all read over HTTP with no model in the loop. A model that forgets to escalate is a
+// silent failure; a script cannot forget.
+const CYCLE_LOG = path.join(ROOT, "tasks", "logs", "boss_cycle.txt");
+const CYCLE_STATE = path.join(ROOT, "tasks", "logs", "boss_cycle_state.json");
+const CYCLE_TIMEOUT_MS = 15 * 60 * 1000;
+
+const CYCLE_PROMPT = [
+  "Autonomous 2-hourly ops cycle. You are read-only and PROPOSE-ONLY except where /auto",
+  "itself permits a heal.",
+  "",
+  "STEP 1. Run the /auto cycle as written in .claude/commands/auto.md: gather the",
+  "interval context, triage it, and apply ONLY /auto's own low-risk auto-fix set",
+  "(force_heal on stale healer data). NOTHING ELSE may be auto-fixed.",
+  "",
+  "STEP 2. Review performance like the analyst: the engine's closed P&L, per setup and",
+  "per asset, what changed since the last cycle, and whether anything in the journal",
+  "looks wrong rather than merely bad.",
+  "",
+  "STEP 3. Surface improvement ideas like the researcher: concrete, testable, each with",
+  "the evidence that prompted it. PROPOSALS ONLY.",
+  "",
+  "HARD BOUNDARY, above every instruction here. CLAUDE.md carries a LOCKED rule: never",
+  "stop, pause, throttle, clamp or block any asset or any trade, and nothing may reduce",
+  "the firing set. You may NOT change the gate, strategy_settings.json, learning.json,",
+  "mt5_bridge.py, the executors, or any signal-path code. You may not place, close or",
+  "size a trade. Anything you would change on the trading path is a PROPOSAL, written",
+  "down, never applied.",
+  "",
+  "Persist with write_memory and log_note as /auto specifies. Finish with a block that",
+  "starts with the line HEADLINE: followed by at most 5 lines - what you found, what",
+  "you fixed, what you propose. That block is what the operator reads first.",
+].join("\n");
+
+function readCycleState() {
+  try { return JSON.parse(fs.readFileSync(CYCLE_STATE, "utf8")); } catch (_) { return {}; }
+}
+function writeCycleState(st) {
+  try { fs.writeFileSync(CYCLE_STATE, JSON.stringify(st, null, 2)); } catch (_) {}
+}
+function clog(line) {
+  const stamped = "[" + new Date().toISOString() + "] " + line;
+  console.log(stamped);
+  try { fs.appendFileSync(CYCLE_LOG, stamped + "\n"); } catch (_) {}
+}
+
+// DETERMINISTIC ESCALATION. No model involved: HTTP reads and a comparison.
+async function criticalConditions() {
+  const out = [];
+  const risk = await getJson("/api/risk-status", 10000);
+  if (risk._error) out.push("risk-status unreadable (" + risk._error + ")");
+  else {
+    if (risk.halted) out.push("CIRCUIT BREAKER OPEN: " + (risk.haltReason || "no reason given"));
+    for (const tag of Object.keys(risk.accounts || {})) {
+      const acct = risk.accounts[tag];
+      if (acct && acct.halted) out.push("account " + tag + " HALTED: " + (acct.haltReason || "no reason"));
+    }
+  }
+  const health = await getJson("/api/mt5/health", 10000);
+  if (health._error) out.push("mt5 health unreadable (" + health._error + ")");
+  else if (health.connected === false) out.push("MT5 bridge reports NOT CONNECTED");
+
+  const settings = await getJson("/api/strategy-settings", 10000);
+  if (!settings._error && settings.settingsError) {
+    out.push("settings ERROR - the server is on built-in defaults: " + settings.settingsError);
+  }
+  return out;
+}
+
+async function runCycle() {
+  const started = Date.now();
+  clog("cycle start");
+
+  const before = await snapshot();
+  if (before._error) { clog("ABORT - could not snapshot before the run: " + before._error); return 2; }
+
+  let raw = "", usage = null, cliFailed = null;
+  try {
+    // NOT execFileSync("claude", ...). On Windows `claude` is an npm shim - a
+    // extension-less file plus claude.cmd and claude.ps1 - and node's execFileSync
+    // does not walk PATHEXT, so a bare "claude" is spawnSync ENOENT. Measured here
+    // 2026-09-18: the first cycle failed exactly that way and paged the operator.
+    // Resolve the .cmd explicitly, fall back to letting cmd.exe do the resolving.
+    const shim = path.join(process.env.APPDATA || "", "npm", "claude.cmd");
+    const exe = fs.existsSync(shim) ? shim : "claude.cmd";
+    // THE PROMPT GOES OVER STDIN, NOT ARGV. Passing a multi-line prompt as an
+    // argument through cmd.exe mangles it: the second attempt here came back as
+    // "JARVIS onl..." instead of JSON because the shell had eaten --output-format.
+    // stdin has no quoting rules to get wrong.
+    raw = execFileSync(exe, ["-p", "--output-format", "json"], {
+      cwd: ROOT, encoding: "utf8", timeout: CYCLE_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024,
+      shell: true, input: CYCLE_PROMPT,
+    });
+  } catch (e) { cliFailed = (e && e.message ? e.message : String(e)).slice(0, 200); }
+
+  let headline = "", turns = null, costUsd = null;
+  if (!cliFailed) {
+    try {
+      const j = JSON.parse(raw);
+      usage = j.usage || null; turns = j.num_turns; costUsd = j.total_cost_usd;
+      const text = String(j.result || "");
+      const i = text.indexOf("HEADLINE:");
+      headline = (i >= 0 ? text.slice(i) : text.slice(-600)).trim();
+    } catch (e) { cliFailed = "unparseable CLI output: " + e.message; }
+  }
+
+  // A DEAD LOOP MUST PAGE. The OAuth token this runs on refreshes on its own, and a
+  // failed refresh in a headless run would otherwise be a loop that quietly stops
+  // working while every dashboard stays green.
+  if (cliFailed) {
+    clog("CLI FAILED: " + cliFailed);
+    telegram("JARVIS loop FAILED to run - " + cliFailed
+      + "\n\nThe 2-hourly cycle produced nothing. Most likely the CLI subscription token "
+      + "could not refresh on this box. Health checks are unaffected; the autonomous "
+      + "review is not running until this is fixed.");
+    return 2;
+  }
+
+  const after = await snapshot();
+
+  // AN UNVERIFIED CYCLE IS NOT A CLEAN CYCLE. The first real run hit
+  // "signals unreadable: write ECONNABORTED" on the after-snapshot and still returned
+  // 0, which reads as "the guard checked and found nothing". It had checked nothing.
+  // That is exactly the could-not-evaluate-as-pass failure the exit-2 convention was
+  // written to prevent, and it slipped in because this path logged and carried on.
+  let guardUnverified = false;
+  if (after._error) {
+    guardUnverified = true;
+    clog("GUARD UNVERIFIED - could not snapshot after the run: " + after._error);
+  }
+
+  let breaches = [];
+  if (!after._error) {
+    breaches = compare(before, after);
+    const moved = drift(before, after);
+    clog(breaches.length
+      ? "GUARD BREACH: " + breaches.join(" | ")
+      : "guard CLEAN" + (moved.length ? "  (market drift: " + moved.join("; ") + ")" : ""));
+  }
+
+  const criticals = await criticalConditions();
+  const secs = Math.round((Date.now() - started) / 1000);
+  const total = usage
+    ? (usage.cache_read_input_tokens || 0) + (usage.cache_creation_input_tokens || 0)
+      + (usage.input_tokens || 0) + (usage.output_tokens || 0)
+    : null;
+  clog("cycle done in " + secs + "s, " + turns + " turns, "
+    + (usage ? total + " tokens (cache_read " + (usage.cache_read_input_tokens || 0)
+        + ", create " + (usage.cache_creation_input_tokens || 0)
+        + ", out " + (usage.output_tokens || 0) + ")" : "usage unavailable")
+    + ", cost-equivalent $" + costUsd);
+  clog("HEADLINE >> " + headline.replace(/\s+/g, " ").slice(0, 400));
+
+  if (breaches.length) {
+    clog("armed: " + haltLoop());
+    telegram("JARVIS BOUNDARY BREACH - the autonomous cycle narrowed the firing set or "
+      + "changed a trading-path file. The loop has been disabled.\n- " + breaches.join("\n- "));
+  } else if (criticals.length) {
+    telegram("JARVIS CRITICAL - " + criticals.join(" | ") + "\n\n" + headline.slice(0, 500));
+  } else if (guardUnverified) {
+    telegram("JARVIS cycle ran but the BOUNDARY GUARD COULD NOT VERIFY IT - the "
+      + "after-snapshot failed, so nothing confirms the firing set was left intact. "
+      + "Not a breach, and not a pass either. The next cycle re-checks.");
+  }
+
+  // ONCE-DAILY HEARTBEAT, so silence is never ambiguous.
+  const st = readCycleState();
+  const today = new Date().toISOString().slice(0, 10);
+  if (!breaches.length && !criticals.length && !guardUnverified && st.lastHeartbeatDay !== today) {
+    st.lastHeartbeatDay = today;
+    telegram("JARVIS all healthy - the 2-hourly loop is alive and found nothing critical.\n\n"
+      + headline.slice(0, 400));
+  }
+  st.lastCycleAt = new Date().toISOString();
+  st.lastCycleSeconds = secs;
+  st.lastUsage = usage;
+  st.lastCostUsd = costUsd;
+  writeCycleState(st);
+
+  if (breaches.length) return 1;
+  return guardUnverified ? 2 : 0;   // 2 = unverified, never a pass
+}
+
 (async function main() {
   if (process.argv.includes("--selftest")) process.exit(selftest());
+  if (process.argv.includes("--cycle")) process.exit(await runCycle());
 
   const mode = process.argv.includes("--before") ? "before"
              : process.argv.includes("--after") ? "after" : null;
   if (!mode) {
-    console.log("usage: --before | --after [--arm] | --selftest   (see the header)");
+    console.log("usage: --before | --after [--arm] | --cycle | --selftest   (see the header)");
     process.exit(2);
   }
 
