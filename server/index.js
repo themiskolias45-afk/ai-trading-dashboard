@@ -12212,7 +12212,74 @@ function startPeerSilenceWatch() {
   } else {
     console.log(`[fleet] Peer-silence watch armed — ${expected.join(",")}, alarm at ${HEARTBEAT_STALE_MINUTES}m, checking every ${PEER_SILENCE_CHECK_MS / 60000}m.`);
   }
+
+// ── TRADING-PROCESS SILENCE — the one failure nothing else on this box can report ──
+//
+// Measured 2026-09-18: terminal64.exe (MT5) and mt5_bridge.py live in SESSION 1, the
+// interactive one. This server lives in SESSION 0. A DISCONNECT (closing a laptop,
+// dropping RDP) leaves session 1 alive and trading continues; a LOGOFF or a reboot
+// kills session 1 and MT5 and the bridge die with it - while this process keeps
+// running perfectly and answering health checks.
+//
+// Nothing else can report that. The watchdog is itself an Interactive task, so it dies
+// in the same instant; a scheduled task cannot alert because Interactive tasks do not
+// run once the session is gone. This server is the only component that survives the
+// failure it needs to describe, which is why the check lives here.
+//
+// It reads mt5LastSeenByAccount - the same source server/autohealer.js uses for its
+// mt5Bridge check - so the alert and the health panel can never disagree.
+const TRADING_SILENCE_MS   = 15 * 60 * 1000;   // the fleet's own staleAfterMinutes
+const TRADING_CHECK_MS     = 5 * 60 * 1000;
+// A restart empties mt5LastSeenByAccount, and the bridge needs a poll or two to report
+// in. Without this grace every server restart would page "never reported".
+const TRADING_STARTUP_GRACE_MS = 12 * 60 * 1000;
+const tradingSilenceAlerted = new Set();
+
+function checkTradingSilence() {
+  try {
+    if (process.uptime() * 1000 < TRADING_STARTUP_GRACE_MS) return;
+    const expected = (typeof EXPECTED_MT5_ACCOUNTS !== "undefined" && EXPECTED_MT5_ACCOUNTS.length)
+      ? EXPECTED_MT5_ACCOUNTS
+      : Object.keys(mt5LastSeenByAccount || {});
+    if (!expected.length) return;
+
+    const chatId = peerAlertChatId();
+    const now = Date.now();
+    for (const account of expected) {
+      const ts = (mt5LastSeenByAccount || {})[account];
+      const ageMs = ts ? now - new Date(ts).getTime() : null;
+      const down = ageMs === null || ageMs > TRADING_SILENCE_MS;
+
+      if (down && !tradingSilenceAlerted.has(account)) {
+        // Marked BEFORE the send, exactly as the peer check does, so a Telegram
+        // outage cannot turn one alert into a page every five minutes.
+        tradingSilenceAlerted.add(account);
+        const howLong = ageMs === null
+          ? "has not reported at all since this server started"
+          : `last reported ${Math.round(ageMs / 60000)} minutes ago`;
+        console.error(`[trading] BRIDGE SILENT: account ${account} - ${howLong}`);
+        if (chatId) sendTelegram(chatId,
+          `TRADING MAY BE DOWN - MT5 bridge "${account}" ${howLong}.
+
+`
+          + `The server is still running, so the likely cause is the interactive session `
+          + `ending (logoff or reboot): MT5 and the bridge live in that session and die `
+          + `with it. Nothing is trading on this account until it is back.`).catch(() => {});
+      } else if (!down && tradingSilenceAlerted.has(account)) {
+        tradingSilenceAlerted.delete(account);
+        console.log(`[trading] BRIDGE RECOVERED: ${account}`);
+        if (chatId) sendTelegram(chatId,
+          `MT5 bridge "${account}" is reporting again - trading is live.`).catch(() => {});
+      }
+    }
+  } catch (e) {
+    // A watcher that throws must not take the trading server with it.
+    console.error("[trading] silence check failed:", e?.message || e);
+  }
+}
+
   setInterval(checkPeerSilence, PEER_SILENCE_CHECK_MS).unref?.();
+  setInterval(checkTradingSilence, TRADING_CHECK_MS).unref?.();
   checkPeerSilence();
 }
 

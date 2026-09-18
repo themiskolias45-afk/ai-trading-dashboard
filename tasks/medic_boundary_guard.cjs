@@ -15,12 +15,16 @@
  * cannot. This is the mechanical half of that rule.
  *
  * WHAT IT CHECKS, and nothing else:
- *   1. /api/signals — per asset, the SIGNAL and the CONFIDENCE. A confidence that fell
- *      or a signal that flipped TO WAIT is the measurable form of "the firing set got
- *      smaller".
- *   2. SHA-256 of the files that decide whether a trade happens. ANY change is a
- *      breach, including a change that looks safe: the guard's job is to notice, not
- *      to judge.
+ *   1. SHA-256 of the files that decide whether a trade happens. ANY change is a
+ *      BREACH, including one that looks safe: the guard's job is to notice, not to
+ *      judge. Deterministic, so it cannot false-positive.
+ *   2. /api/signals — per asset, the SIGNAL and the CONFIDENCE. A drop, or a flip to
+ *      WAIT, is the measurable form of "the firing set got smaller" — but it is a
+ *      BREACH ONLY WHEN A WATCHED FILE ALSO CHANGED in the same window. Confidence is
+ *      recomputed from live bars, so it moves with the market on its own schedule; a
+ *      medic run takes minutes, and paging because gold ticked down while the doctor
+ *      read a log is a false alarm that teaches the operator to ignore the real one.
+ *      A drop with no file change is logged as drift and pages nobody.
  *
  * WHAT IT DELIBERATELY DOES NOT DO
  * It does not fix anything, it does not revert anything, and it never touches a trade.
@@ -112,24 +116,50 @@ async function snapshot() {
 }
 
 function compare(before, after) {
-  const breaches = [];
-  for (const a of ASSETS) {
-    const b = before.signals[a], n = after.signals[a];
-    // A DROP is a breach. A RISE is not - the LOCKED rule says the firing set may
-    // grow. Equality is the common case and says nothing.
-    if (n.confidence < b.confidence) {
-      breaches.push(`${a}: confidence FELL ${b.confidence} -> ${n.confidence}`);
-    }
-    if (n.signal === "WAIT" && b.signal !== "WAIT") {
-      breaches.push(`${a}: signal flipped ${b.signal} -> WAIT`);
-    }
-  }
+  // A WATCHED FILE CHANGING IS ALWAYS A BREACH. It is deterministic: nothing but a
+  // writer changes a hash, so there is no false positive to worry about.
+  const configChanged = [];
   for (const rel of WATCHED) {
     if (before.hashes[rel] !== after.hashes[rel]) {
-      breaches.push(`${rel}: CHANGED (${before.hashes[rel]} -> ${after.hashes[rel]})`);
+      configChanged.push(`${rel}: CHANGED (${before.hashes[rel]} -> ${after.hashes[rel]})`);
     }
   }
-  return breaches;
+
+  // A CONFIDENCE DROP IS NOT, ON ITS OWN. Confidence is recomputed from live bars
+  // every cycle, so it moves with the market on its own schedule. A medic run takes
+  // minutes, and paging the operator because gold ticked down while the doctor was
+  // reading a log would be a false alarm that trains them to ignore the real one.
+  //
+  // So a drop is only a BREACH when a watched file ALSO changed in the same window -
+  // that is the combination that says the LOOP narrowed the firing set rather than
+  // the market. A drop with no file change is recorded as drift and pages nobody.
+  const narrowing = [];
+  for (const a of ASSETS) {
+    const b = before.signals[a], n = after.signals[a];
+    // A RISE is never reported: the LOCKED rule permits the firing set to grow.
+    if (n.confidence < b.confidence) {
+      narrowing.push(`${a}: confidence FELL ${b.confidence} -> ${n.confidence}`);
+    }
+    if (n.signal === "WAIT" && b.signal !== "WAIT") {
+      narrowing.push(`${a}: signal flipped ${b.signal} -> WAIT`);
+    }
+  }
+
+  if (configChanged.length) return configChanged.concat(narrowing);
+  return [];                      // narrowing alone is drift - see `drift()` below
+}
+
+// What compare() deliberately did not treat as a breach, so a quiet run still says
+// what moved. Reported in the log, never paged.
+function drift(before, after) {
+  const out = [];
+  for (const a of ASSETS) {
+    const b = before.signals[a], n = after.signals[a];
+    if (n.confidence !== b.confidence || n.signal !== b.signal) {
+      out.push(`${a}: ${b.signal}/${b.confidence} -> ${n.signal}/${n.confidence}`);
+    }
+  }
+  return out;
 }
 
 function telegram(text) {
@@ -188,13 +218,20 @@ function selftest() {
   cases.push(["identical -> clean", compare(base, clone()).length === 0]);
 
   let x = clone(); x.signals.btc.confidence = 70;
-  cases.push(["confidence drop -> breach", compare(base, x).length === 1]);
+  cases.push(["confidence drop ALONE -> NOT a breach (market drift)", compare(base, x).length === 0]);
+  cases.push(["...but it is reported as drift", drift(base, x).length === 1]);
+
+  x = clone(); x.signals.btc.confidence = 70; x.hashes["mt5_bridge.py"] = "new";
+  cases.push(["drop + file change -> BREACH, both listed", compare(base, x).length === 2]);
 
   x = clone(); x.signals.btc.confidence = 95;
   cases.push(["confidence RISE -> clean (growth is allowed)", compare(base, x).length === 0]);
 
   x = clone(); x.signals.btc.signal = "WAIT";
-  cases.push(["flip to WAIT -> breach", compare(base, x).some(b => /WAIT/.test(b))]);
+  cases.push(["flip to WAIT alone -> NOT a breach", compare(base, x).length === 0]);
+
+  x = clone(); x.signals.btc.signal = "WAIT"; x.hashes["server/strategy_settings.json"] = "new";
+  cases.push(["flip to WAIT + settings change -> BREACH", compare(base, x).some(b => /WAIT/.test(b))]);
 
   x = clone(); x.signals.gold.signal = "BUY";
   cases.push(["WAIT -> BUY -> clean", compare(base, x).length === 0]);
@@ -206,7 +243,7 @@ function selftest() {
   cases.push(["watched file vanishes -> breach", compare(base, x).length === 1]);
 
   x = clone(); x.signals.btc.confidence = 70; x.hashes["server/learning.json"] = "qqq";
-  cases.push(["two problems -> two breaches", compare(base, x).length === 2]);
+  cases.push(["drop + learning.json change -> 2 lines", compare(base, x).length === 2]);
 
   let bad = 0;
   for (const [name, pass] of cases) {
@@ -249,7 +286,9 @@ function selftest() {
   log(`after:  ${ASSETS.map(a => `${a} ${snap.signals[a].signal}/${snap.signals[a].confidence}`).join("  ")}`);
 
   if (!breaches.length) {
-    log("CLEAN - the firing set did not shrink and no watched file changed.");
+    const moved = drift(before, snap);
+    log("CLEAN - no watched file changed."
+        + (moved.length ? "  Market drift (not a breach): " + moved.join("; ") : ""));
     process.exit(0);
   }
 
