@@ -242,15 +242,75 @@ REM ============================================================================
 set "PROOF=UNKNOWN"
 for /f "delims=" %%T in ('powershell -NoProfile -ExecutionPolicy Bypass -Command "$r='%REPORT%'; $m='%RUNMARK%'; if(-not (Test-Path $r)){'MISSING'} elseif((Get-Item $r).Length -eq 0){'EMPTY'} elseif(-not (Test-Path $m)){'NOMARK'} elseif((Get-Item $r).LastWriteTimeUtc -le (Get-Item $m).LastWriteTimeUtc){'STALE'} else {'FRESH'}"') do set "PROOF=%%T"
 
-echo [%DATE% %TIME%] %AGENT%: finished rc=%CLAUDE_RC% report=%PROOF% >> "%LOG%"
+REM ============================================================================
+REM  PROOF OF PERSIST -- the same doctrine as PROOF OF WORK above, applied to the
+REM  AUTO-PERSIST mandate every brief carries. A report proves the agent THOUGHT;
+REM  it does not prove the agent REMEMBERED, and those fail separately.
+REM
+REM  Measured 2026-09-18 on the VPS: a tester run finished rc=0 with report=FRESH
+REM  while "mcp__memory__* timed out" -- no entity was written. Nothing noticed,
+REM  because nothing looked. The run also CLAIMED in its own output that it had
+REM  persisted to the file-based memory dir, and that was false: no .md was touched
+REM  in its window. An agent's account of its own persistence is not evidence either.
+REM
+REM  A UNION, NOT AN AND -- and this is the whole design. That same run DID persist,
+REM  via mcp__smartentry__write_memory (test-2026-09-18, verified in
+REM  tasks/jarvis_memory.json). The state was saved; only one of three stores failed.
+REM  A check demanding the MCP entity specifically would have called that run a
+REM  failure, and a false red is precisely how a true red gets ignored. So: the state
+REM  must reach AT LEAST ONE store, and the log names which ones it reached.
+REM
+REM  Measured against %RUNMARK%, the marker this script already stamps before the
+REM  run -- so "newer than the marker" means "written by THIS run", the same way
+REM  report freshness is decided. File times, never a parsed date string: %DATE% is
+REM  locale-dependent and a parse that quietly failed would break the check itself.
+REM
+REM  TWO STORES ONLY, AND THAT IS DELIBERATE. An earlier draft also counted .md
+REM  files under .claude/projects/<slug>/memory. That slug follows the CWD, and
+REM  :191 does pushd into the clean room -- so it resolved to the INTERACTIVE
+REM  session's dir (428 .md files, written by a human's session) while the
+REM  agent's own dir, C--Users-User-AppData-Local-SmartEntryAgentCwd\memory,
+REM  holds ZERO. Any memory written by a person mid-run would have marked the
+REM  agent as having persisted. Caught by the code-reviewer agent on this very
+REM  change, 2026-09-18, and verified by counting both directories. The two
+REM  stores kept are absolute paths and cannot move with the cwd.
+REM
+REM  KNOWN LIMIT, stated rather than hidden: tasks/jarvis_memory.json has other
+REM  writers, so a concurrent write during the run could satisfy this check without
+REM  the agent having persisted. It cannot produce a false FAILURE, only a false
+REM  pass, which is the right way round for a check that must not cry wolf.
+REM ============================================================================
+set "PERSIST=UNKNOWN"
+for /f "delims=" %%P in ('powershell -NoProfile -ExecutionPolicy Bypass -Command "$m='%RUNMARK%'; if(-not (Test-Path $m)){'NOMARK'} else { $t=(Get-Item $m).LastWriteTimeUtc; $s=@(); $a=Join-Path $env:USERPROFILE 'Documents\Brain\mcp-memory.json'; if((Test-Path $a) -and ((Get-Item $a).LastWriteTimeUtc -gt $t)){$s+='mcp'}; $b=Join-Path '%PROJ%' 'tasks\jarvis_memory.json'; if((Test-Path $b) -and ((Get-Item $b).LastWriteTimeUtc -gt $t)){$s+='jarvis'}; if($s.Count -gt 0){'OK-'+($s -join '+')}else{'NONE'} }"') do set "PERSIST=%%P"
+
+echo [%DATE% %TIME%] %AGENT%: finished rc=%CLAUDE_RC% report=%PROOF% persist=%PERSIST% >> "%LOG%"
 
 REM A real failure keeps its own exit code -- never mask it with ours.
 if not "%CLAUDE_RC%"=="0" goto :agent_rc_failed
 if not "%PROOF%"=="FRESH" goto :agent_no_report
+REM  ENFORCED ONLY WHERE THE BRIEF ASKS FOR IT. medic.md has NO AUTO-PERSIST
+REM  section at all (measured: 0 matches, against 1 in each of the other five),
+REM  so PERSIST=NONE is the CORRECT outcome of a healthy medic run. Failing it
+REM  would paint a green box red on every run, and coverage_audit turns a
+REM  non-zero exit straight into RED - the false alarm this check exists to
+REM  avoid. So the brief itself decides whether persistence is owed.
+set "PERSIST_REQUIRED="
+findstr /C:"AUTO-PERSIST" "%DEF%" >nul 2>&1 && set "PERSIST_REQUIRED=1"
+if not defined PERSIST_REQUIRED goto :agent_persist_ok
+if "%PERSIST%"=="NONE" goto :agent_no_persist
+if "%PERSIST%"=="NOMARK" goto :agent_no_persist
+if "%PERSIST%"=="UNKNOWN" goto :agent_no_persist
+:agent_persist_ok
 endlocal & exit /b 0
 
 :agent_rc_failed
 endlocal & exit /b %CLAUDE_RC%
+
+:agent_no_persist
+echo [%DATE% %TIME%] %AGENT%: NOTHING WAS PERSISTED BY THIS RUN ^(%PERSIST%^) -- the brief's>> "%LOG%"
+echo [%DATE% %TIME%] %AGENT%: AUTO-PERSIST did not reach mcp-memory.json, tasks/jarvis_memory.json>> "%LOG%"
+echo [%DATE% %TIME%] %AGENT%: or the memory/*.md dir. The report was written; the memory was not.>> "%LOG%"
+endlocal & exit /b 4
 
 :agent_no_report
 echo [%DATE% %TIME%] %AGENT%: NO REPORT FROM THIS RUN ^(%PROOF%^) -- claude exited 0 but wrote nothing.>> "%LOG%"

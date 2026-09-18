@@ -3,9 +3,23 @@
 
 $ts     = Get-Date -Format 'yyyy-MM-dd HH:mm'
 $today  = Get-Date -Format 'yyyy-MM-dd'
-$vault  = 'C:\Users\User\Documents\Brain\01 - Daily Notes'
+# THIS BOX, NOT THE LAPTOP. Both paths were hardcoded to C:\Users\User\... which made
+# this whole hook inert on the VPS - and silently, which is the worst part. Measured
+# 2026-09-18: on the VPS C:\Users\User\ai-trading-dashboard EXISTS as a decoy holding
+# only a 'tasks' folder (created 2026-09-13 by an earlier hardcoded-path writer), so
+# Test-Path never failed loudly - git -C returned nothing, the state write landed
+# nowhere, and Test-Path on the memory-index guard was false so the guard NEVER RAN.
+# C:\ai-trading-dashboard\tasks\jarvis-state.json did not exist at all.
+#
+# $PSScriptRoot is the script's own directory, so the hook now finds the repo it was
+# actually installed into. Verified on both boxes: laptop -> C:\Users\User\ai-trading-
+# dashboard, VPS -> C:\ai-trading-dashboard, 'guard exists: True' on each.
+# The literal is kept as a fallback for the one case $PSScriptRoot is empty (dot-
+# sourcing from a prompt); a hook that throws on line 6 writes nothing at all.
+$vault  = Join-Path $env:USERPROFILE 'Documents\Brain\01 - Daily Notes'
 $note   = "$vault\$today.md"
-$proj   = 'C:\Users\User\ai-trading-dashboard'
+if ($PSScriptRoot) { $proj = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path }
+else               { $proj = 'C:\Users\User\ai-trading-dashboard' }
 
 # --- 1. Vault daily note (deduped by newest commit hash) ---
 if (Test-Path $vault) {
