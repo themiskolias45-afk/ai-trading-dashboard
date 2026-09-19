@@ -6987,7 +6987,32 @@ function recomputeRiskStatus() {
 // ANY COMPONENT THAT CAN PLACE AN ORDER MUST CHECK BOTH AND FAIL CLOSED ON EITHER.
 // tasks/fvg_executor.py trading_halted() is the reference implementation.
 app.get("/api/risk-status",  (_, res) => res.json(riskStatus));
-app.post("/api/risk-status", (req, res) => {
+
+// WRITE PATH IS LOOPBACK-ONLY. GET stays open - the dashboard reads it.
+//
+// This POST spreads the request body straight into riskStatusByAccount and
+// recomputes, so an unauthenticated caller could set halted, haltReason,
+// consecutiveLosses or dailyPnl to anything. It is in API_NO_LOGIN_REQUIRED and had
+// no loopback check, and the server listens on the IPv6 wildcard with an inbound
+// firewall ALLOW for node.exe on the Public profile - so it was reachable from any
+// network this machine joins. Measured 2026-09-19.
+//
+// WHAT THAT COULD DO, stated precisely: it could FAKE a circuit-breaker trip, or
+// MASK a genuine one, on the dashboard, the Telegram digest and the fleet panel.
+// It could NOT start or stop a trade - the bridge's trade gate is remote_halted
+// (mt5_bridge.py:2105), fed by GET /api/mt5/control whose POST already requires a
+// session, and its own breaker is local state on its own box. Masking a real halt
+// is still the worst class of bug this system has: a surface that reads healthy
+// while something is wrong.
+//
+// SAFE FOR THE BRIDGES, verified before shipping: the only posters are
+// mt5_bridge.py:2314 and :3279, both to SERVER_URL, which defaults to
+// http://localhost:3001 and is unset in keys.env and in both the User and Machine
+// environments. isLoopbackOrigin(undefined) returns true, so a python request that
+// sends no Origin header passes the second check. A rejection is now logged with
+// the remote address, so if a bridge ever does post from a non-loopback address it
+// says so instead of going quietly stale.
+app.post("/api/risk-status", requireLocalOnly, (req, res) => {
   const account = req.body?.account || "default";
   riskStatusByAccount[account] = { ...riskStatusByAccount[account], ...req.body };
   recomputeRiskStatus();
@@ -15125,6 +15150,12 @@ function requireLocalOnly(req, res, next) {
   const remote = req.socket.remoteAddress || "";
   const isLocal = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
   if (!isLocal) {
+    // LOG IT. This branch used to 403 in silence, so a guard that started refusing a
+    // legitimate on-box caller - a bridge posting from a LAN address rather than
+    // loopback, say - looked exactly like that caller having gone quiet. Silent
+    // refusal on a status path is the same "reads healthy while broken" failure the
+    // guards exist to prevent. Additive only: the request was already being refused.
+    console.error(`[guard] admin action refused - non-local caller ${JSON.stringify(remote)} on ${req.method} ${req.originalUrl}`);
     return res.status(403).json({ error: "This admin action only accepts requests from the server's own machine." });
   }
   if (!isLoopbackOrigin(req.headers.origin)) {
