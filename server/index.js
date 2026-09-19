@@ -6544,6 +6544,36 @@ function recomputeMt5Positions() {
 // doubles as the connectivity heartbeat used by /api/checksystem — a bridge with no
 // open trades should never be reported as "offline" just because mt5Positions is empty.
 let mt5LastSeenByAccount = {}; // account tag -> ISO timestamp of last report
+
+/**
+ * Which MT5 bridge tags THIS box is supposed to be running.
+ *
+ * MT5_EXPECTED_ACCOUNTS is the documented single source of truth, shared with
+ * server/autohealer.js:33, tasks/bridge_tags.ps1, ensure_running.ps1 and the
+ * watchdog. keys.env is copied into process.env by the IIFE at the very top of this
+ * file, BEFORE any require, so this is populated on a cold start with no heartbeats
+ * yet - which is the whole point.
+ *
+ * READ AT CALL TIME, DELIBERATELY. Capturing it into a const at module load is the
+ * exact defect documented at the top of this file: autohealer.js:33 does that, and a
+ * keys.env loaded even one line later was invisible to it.
+ *
+ * DEFAULT "A,B" matches the healer's, so a box with no keys.env behaves as it always
+ * has.
+ *
+ * IT CAN RETURN EMPTY, AND THAT IS CORRECT. A first draft floored the result to
+ * ["A","B"] so a watch list could never be blank - which silently broke the
+ * explicitly supported "no bridge expected here" configuration that
+ * autohealer.js:328 handles by name, and would have flipped /api/mt5-health from
+ * 200 {expected:false} to 503 and raised a high-severity fleet action item on a box
+ * deliberately running nothing. `??` does not catch "", and the keys.env loader
+ * skips empty values, so only a launcher-set empty var or "," reaches this - rare,
+ * but wrong is wrong. Empty means "nothing expected", not "unknown".
+ */
+function expectedMt5Accounts() {
+  return (process.env.MT5_EXPECTED_ACCOUNTS ?? "A,B")
+    .split(",").map(tag => tag.trim()).filter(Boolean);
+}
 const MT5_HEARTBEAT_STALE_MS = 150 * 1000; // 2.5x the default 60s poll interval
 
 // Per-account health check, batch-friendly: 200 while connected (or never yet seen —
@@ -6581,8 +6611,9 @@ app.get("/api/mt5/health", (req, res) => {
     // is not new: it is exactly what the startup-grace branch above already returns,
     // so every existing reader already handles it.
     // Default "A,B" matches the healer, so a box with no keys.env behaves as today.
-    const expectedAccounts = (process.env.MT5_EXPECTED_ACCOUNTS ?? "A,B")
-      .split(",").map(tag => tag.trim()).filter(Boolean);
+    // Was a second inline copy of this parse; now the one resolver, so this route and
+    // the trading-silence pager can never disagree about what this box owns.
+    const expectedAccounts = expectedMt5Accounts();
     if (account !== "default" && !expectedAccounts.includes(account)) {
       return res.status(200).json({
         connected: null,
@@ -12213,6 +12244,11 @@ function startPeerSilenceWatch() {
     console.log(`[fleet] Peer-silence watch armed — ${expected.join(",")}, alarm at ${HEARTBEAT_STALE_MINUTES}m, checking every ${PEER_SILENCE_CHECK_MS / 60000}m.`);
   }
 
+
+  setInterval(checkPeerSilence, PEER_SILENCE_CHECK_MS).unref?.();
+  checkPeerSilence();
+}
+
 // ── TRADING-PROCESS SILENCE — the one failure nothing else on this box can report ──
 //
 // Measured 2026-09-18: terminal64.exe (MT5) and mt5_bridge.py live in SESSION 1, the
@@ -12234,37 +12270,135 @@ const TRADING_CHECK_MS     = 5 * 60 * 1000;
 // in. Without this grace every server restart would page "never reported".
 const TRADING_STARTUP_GRACE_MS = 12 * 60 * 1000;
 const tradingSilenceAlerted = new Set();
+// Most pages one tick may send. POST /api/mt5/positions is in API_NO_LOGIN_REQUIRED
+// (:554) and its `account` field is caller-controlled and unvalidated, so every tag
+// it has ever seen joins the watch set. Measured by review 2026-09-19: 40 injected
+// tags produced 41 Telegram messages in a single tick. The cap turns an unbounded
+// outbound amplifier into at most a handful of pages plus one honest summary line.
+// It bounds the SEND, not the detection - everything still reaches the log.
+const TRADING_SILENCE_MAX_PAGES_PER_TICK = 3;
 
 function checkTradingSilence() {
   try {
     if (process.uptime() * 1000 < TRADING_STARTUP_GRACE_MS) return;
-    const expected = (typeof EXPECTED_MT5_ACCOUNTS !== "undefined" && EXPECTED_MT5_ACCOUNTS.length)
-      ? EXPECTED_MT5_ACCOUNTS
-      : Object.keys(mt5LastSeenByAccount || {});
+    // THE REBOOT BLIND SPOT, CLOSED 2026-09-19.
+    //
+    // This used to read `typeof EXPECTED_MT5_ACCOUNTS !== "undefined" ? ... :
+    // Object.keys(mt5LastSeenByAccount)`. EXPECTED_MT5_ACCOUNTS is declared in
+    // server/autohealer.js:33 and has NEVER been in this file's scope, so the typeof
+    // was always false and the fallback always ran. mt5LastSeenByAccount is in-memory
+    // and only written when a bridge reports, so on a FRESH SERVER START WITH THE
+    // BRIDGE DEAD it is empty, `expected` was [], and this returned before it could
+    // page. That is precisely the reboot case named in the comment above - the server
+    // auto-starts in session 0 while session 1 stays dead - and it is the worst one,
+    // because nobody is watching a machine that rebooted itself at 04:00.
+    //
+    // The durable list comes first; the live map is UNIONED in rather than replaced,
+    // so a bridge reporting under a tag the config does not list is still watched.
+    // This can only ever widen the watch set, never narrow it.
+    //
+    // TAGS ARE COMPARED CASE-INSENSITIVELY. The lookup below is an object-key hit on
+    // whatever the bridge posted (index.js:6882 <- mt5_bridge.py "account"), so "a"
+    // and "A" would otherwise be two accounts, one of which can never report - and
+    // that one would latch a page that the recovery branch could never clear.
+    const liveTags  = Object.keys(mt5LastSeenByAccount || {});
+    // FRESHEST WINS, not last-inserted. `new Map(pairs)` lets the last duplicate win,
+    // so with both "a" and "A" present the verdict depended on object key insertion
+    // order: a live bridge reporting 30s ago under "a" could be judged by a stale
+    // 90-minute "A" and page while trading was perfectly healthy.
+    const seenByKey = new Map();
+    for (const tag of liveTags) {
+      const key  = tag.toUpperCase();
+      const seen = mt5LastSeenByAccount[tag];
+      if (!seen) continue;
+      const prev = seenByKey.get(key);
+      if (!prev || new Date(seen).getTime() > new Date(prev).getTime()) seenByKey.set(key, seen);
+    }
+
+    // Dedupe case-insensitively but keep the first spelling seen, so the page names
+    // the tag the way the operator wrote it.
+    const byKey = new Map();
+    for (const tag of [...expectedMt5Accounts(), ...liveTags]) {
+      const key = String(tag).toUpperCase();
+      if (!byKey.has(key)) byKey.set(key, tag);
+    }
+    const expected = [...byKey.values()];
     if (!expected.length) return;
+
+    // PRUNE the alerted set of tags that have left the watch set.
+    //
+    // THIS DOES NOT BOUND THE SET, and an earlier version of this comment claimed it
+    // did. `expected` includes every key of mt5LastSeenByAccount, and that map is
+    // never pruned, so the set still grows by one per DISTINCT tag ever posted. What
+    // this prevents is a stale latch surviving a tag leaving the watch set. The real
+    // bound has to come from validating `account` at the ingest route - noted, not
+    // done, because that route is unauthenticated and the bridges POST to it.
+    const liveKeys = new Set(expected.map(t => String(t).toUpperCase()));
+    for (const tag of [...tradingSilenceAlerted]) {
+      if (!liveKeys.has(String(tag).toUpperCase())) tradingSilenceAlerted.delete(tag);
+    }
 
     const chatId = peerAlertChatId();
     const now = Date.now();
+    let pagesSent = 0, pagesSuppressed = 0;
     for (const account of expected) {
-      const ts = (mt5LastSeenByAccount || {})[account];
+      const ts = seenByKey.get(String(account).toUpperCase());
       const ageMs = ts ? now - new Date(ts).getTime() : null;
       const down = ageMs === null || ageMs > TRADING_SILENCE_MS;
 
       if (down && !tradingSilenceAlerted.has(account)) {
-        // Marked BEFORE the send, exactly as the peer check does, so a Telegram
-        // outage cannot turn one alert into a page every five minutes.
-        tradingSilenceAlerted.add(account);
-        const howLong = ageMs === null
-          ? "has not reported at all since this server started"
-          : `last reported ${Math.round(ageMs / 60000)} minutes ago`;
+        // A configured tag that has NEVER reported while another bridge is reporting
+        // normally is almost certainly a tag mismatch, not a dead session - the
+        // bridge posts ACCOUNT_TAG or "default" (mt5_bridge.py:135/:453) and an unset
+        // ACCOUNT_TAG lands under "default" while the config still expects "A". The
+        // page still goes out, because something IS misconfigured and nothing is
+        // trading under that name, but it must not assert the wrong cause.
+        const reportingNow = liveTags.filter(tag => {
+          const seen = mt5LastSeenByAccount[tag];
+          return seen && (now - new Date(seen).getTime()) <= TRADING_SILENCE_MS;
+        });
+        const howLong = ageMs !== null
+          ? `last reported ${Math.round(ageMs / 60000)} minutes ago`
+          : reportingNow.length
+            ? `has never reported under that name, while ${reportingNow.join(", ")} is reporting normally`
+            : "has not reported at all since this server started";
         console.error(`[trading] BRIDGE SILENT: account ${account} - ${howLong}`);
+
+        // THE LOG ALWAYS GETS EVERY ACCOUNT. Only the outbound page is capped, so a
+        // flood of unknown tags cannot become a flood of Telegram messages while the
+        // detection itself stays complete.
+        //
+        // THE CAP MUST NOT CONSUME THE LATCH, and getting that order wrong is exactly
+        // the defect review pass 3 caught. When `tradingSilenceAlerted.add()` ran
+        // BEFORE this check, a suppressed account was recorded as alerted and never
+        // paged again for the life of the process - and then, on recovery, sent a
+        // "is reporting again" message for a page that had never gone out. An alarm
+        // announcing recovery from a state it never reported is worse than silence.
+        // Suppressed accounts now stay UNLATCHED and get their turn on a later tick;
+        // `expected` is built config-first (see the byKey loop above), so the real
+        // configured accounts always take the budget ahead of unknown tags.
+        if (pagesSent >= TRADING_SILENCE_MAX_PAGES_PER_TICK) { pagesSuppressed++; continue; }
+        pagesSent++;
+
+        // Marked only once the send is actually going out, and still BEFORE the await,
+        // exactly as the peer check does - so a Telegram outage cannot turn one alert
+        // into a page every five minutes.
+        tradingSilenceAlerted.add(account);
         if (chatId) sendTelegram(chatId,
           `TRADING MAY BE DOWN - MT5 bridge "${account}" ${howLong}.
 
 `
-          + `The server is still running, so the likely cause is the interactive session `
-          + `ending (logoff or reboot): MT5 and the bridge live in that session and die `
-          + `with it. Nothing is trading on this account until it is back.`).catch(() => {});
+          + (ageMs === null && reportingNow.length
+              ? `Another bridge (${reportingNow.join(", ")}) is alive, so the likely cause is a `
+                + `TAG MISMATCH rather than a dead session - check ACCOUNT_TAG on the bridge `
+                + `against MT5_EXPECTED_ACCOUNTS. Nothing is trading under the name "${account}".`
+              : reportingNow.length
+                ? `${reportingNow.join(", ")} is still reporting, so this is one bridge or `
+                  + `account dying rather than the whole session going down. Nothing is trading `
+                  + `on "${account}" until it is back.`
+                : `The server is still running, so the likely cause is the interactive session `
+                  + `ending (logoff or reboot): MT5 and the bridge live in that session and die `
+                  + `with it. Nothing is trading on this account until it is back.`)).catch(() => {});
       } else if (!down && tradingSilenceAlerted.has(account)) {
         tradingSilenceAlerted.delete(account);
         console.log(`[trading] BRIDGE RECOVERED: ${account}`);
@@ -12272,16 +12406,52 @@ function checkTradingSilence() {
           `MT5 bridge "${account}" is reporting again - trading is live.`).catch(() => {});
       }
     }
+
+    // Say how many were held back rather than dropping them silently - a suppressed
+    // page that nobody counts is the same decoration this whole change is about.
+    if (pagesSuppressed > 0) {
+      console.error(`[trading] ${pagesSuppressed} further silent account(s) not paged this tick `
+        + `(cap ${TRADING_SILENCE_MAX_PAGES_PER_TICK}). See the log lines above for all of them.`);
+      if (chatId) sendTelegram(chatId,
+        `...and ${pagesSuppressed} further MT5 account(s) are silent. Page cap `
+        + `${TRADING_SILENCE_MAX_PAGES_PER_TICK} per check; the server log lists them all.`).catch(() => {});
+    }
   } catch (e) {
     // A watcher that throws must not take the trading server with it.
     console.error("[trading] silence check failed:", e?.message || e);
   }
 }
 
-  setInterval(checkPeerSilence, PEER_SILENCE_CHECK_MS).unref?.();
+/**
+ * Arm the trading-silence pager.
+ *
+ * THIS USED TO BE UNREACHABLE, and that is the whole reason this function exists.
+ * The block above was pasted INSIDE startPeerSilenceWatch(), so its
+ * `setInterval(checkTradingSilence, ...)` sat behind that function's early
+ * `return` for an unset PEER_HEARTBEAT_EXPECT. Measured 2026-09-19 on this box:
+ * PEER_HEARTBEAT_EXPECT is absent from keys.env and from both the User and Machine
+ * environments, so startPeerSilenceWatch returned at its second statement and
+ * checkTradingSilence was never scheduled once. The pager that exists to report
+ * "nothing is trading" had itself never run - the exact decoration the comment on
+ * startPeerSilenceWatch warns about, in the same function.
+ *
+ * The two watchers answer different questions from different config and must not
+ * share a gate: peer-silence needs PEER_HEARTBEAT_EXPECT, trading-silence needs
+ * nothing but this box's own bridge list.
+ */
+function startTradingSilenceWatch() {
+  const watching = expectedMt5Accounts().join(",");
+  if (!TELEGRAM_TOKEN || !peerAlertChatId()) {
+    console.error(`[trading] Trading-silence watch WATCHING ${watching} BUT CANNOT ALERT — `
+      + `${!TELEGRAM_TOKEN ? "TELEGRAM_TOKEN" : "TELEGRAM_CHAT_ID"} is unset. Silence will reach the log only.`);
+  } else {
+    console.log(`[trading] Trading-silence watch armed — ${watching}, alarm at `
+      + `${TRADING_SILENCE_MS / 60000}m, checking every ${TRADING_CHECK_MS / 60000}m, `
+      + `startup grace ${TRADING_STARTUP_GRACE_MS / 60000}m.`);
+  }
   setInterval(checkTradingSilence, TRADING_CHECK_MS).unref?.();
-  checkPeerSilence();
 }
+
 
 /**
  * The worst MT5 bar staleness in ONE box's /api/signals payload.
@@ -12808,8 +12978,11 @@ app.get("/api/system-plan", async (_, res) => {
       .filter(([, seenAt]) => Date.now() - new Date(seenAt).getTime() < MT5_HEARTBEAT_STALE_MS)
       .map(([tag]) => tag);
 
-    const expectedAccounts = (process.env.MT5_EXPECTED_ACCOUNTS ?? "A,B")
-      .split(",").map(tag => tag.trim()).filter(Boolean);
+    // Second of the two inline copies of this parse, folded into the one resolver.
+    // (checkTradingSilence was never a third copy - it referenced an out-of-scope
+    // const instead, which is the bug this change exists to fix.) Two independent
+    // copies of a single config value is how one of them drifts unnoticed.
+    const expectedAccounts = expectedMt5Accounts();
 
     const localGate     = typeof strategySettings?.confidenceThreshold === "number" ? strategySettings.confidenceThreshold : null;
     const localLotSize  = typeof strategySettings?.fixedLotSize === "number" ? strategySettings.fixedLotSize : null;
@@ -15409,6 +15582,29 @@ function recordServerStart() {
 
 const httpServer = app.listen(PORT, async () => {
   recordServerStart();
+
+  // ARMED FIRST, DELIBERATELY, AND THIS ORDER IS THE POINT.
+  //
+  // These two calls used to sit at the END of this callback, behind five awaits
+  // (fetchPrices, queueSignalRefresh, fetchCongress, fetchFlow,
+  // fetchEconomicCalendar), generateDailyPlan() and ensureTelegramPolling(). The
+  // callback is `async` and has NO try/catch, and process.on("unhandledRejection")
+  // above deliberately does not exit - so a single rejection anywhere in that chain
+  // left the process alive, HTTP serving, every health check green, and the pagers
+  // never scheduled. queueSignalRefresh() is the concrete example: :979-984 catches
+  // the PREVIOUS link in the chain, not refreshSignals()'s own rejection.
+  //
+  // That is the identical failure this pager was just repaired for - a watcher that
+  // exists, logs nothing and never runs - reached through boot order instead of an
+  // early return. A watchdog must be the first thing armed and the last thing to
+  // depend on anything. Both need only process.env, module consts and setInterval,
+  // none of which depend on the awaits below.
+  // The pager goes first. It cannot sit behind another function that might throw -
+  // that is the same "watcher never armed" shape this change exists to remove, and
+  // startPeerSilenceWatch is the less important of the two.
+  startTradingSilenceWatch();
+  // Independent of the pager: different question, different config.
+  startPeerSilenceWatch();
   console.log(`✅ SmartEntry Pro v12 on port ${PORT} — started ${new Date().toISOString()} pid ${process.pid}`);
 
   // Init SQLite (graceful if better-sqlite3 not installed)
@@ -15472,7 +15668,6 @@ const httpServer = app.listen(PORT, async () => {
     refreshSignals,
     fetchPrices,
   });
-  startPeerSilenceWatch();
   console.log('[BOOT] Auto-healer + SQLite DB active');
 });
 
