@@ -1471,7 +1471,13 @@ learning.sessionCount = (learning.sessionCount || 0) + 1;
 saveLearning();
 
 let newsCache     = [];   // economic calendar events from ForexFactory
-let riskStatus    = { dailyPnl: 0, consecutiveLosses: 0, halted: false, haltReason: "" };
+// receivedAt/ageSeconds are declared HERE and not only on the recomputed object.
+// Before the first POST the GET serves this literal verbatim, and a missing key is
+// `undefined`: `risk.ageSeconds === null` is then false AND `risk.ageSeconds > MAX`
+// is also false, so never-reported reads as healthy on both tests. Absent and zero
+// are different answers and must not share a value - so absent is spelled null.
+let riskStatus    = { dailyPnl: 0, consecutiveLosses: 0, halted: false, haltReason: "",
+                      receivedAt: null, ageSeconds: null };
 
 // ── Strategy settings ─────────────────────────────────────────
 // The knobs that decide how much this system is allowed to do. Two of these
@@ -6969,7 +6975,21 @@ function recomputeRiskStatus() {
     consecutiveLosses: Math.max(...accounts.map(a => a.consecutiveLosses || 0)),
     halted: halted.length > 0,
     haltReason: halted.map(a => a.haltReason).filter(Boolean).join(" | "),
-    accounts: riskStatusByAccount
+    accounts: riskStatusByAccount,
+    // THE ABSOLUTE STAMP ONLY. The AGE is derived at READ time - see the GET below.
+    //
+    // A first draft computed ageSeconds here too, and it was structurally always 0:
+    // this function's only caller is the POST handler, three lines after the merge
+    // writes receivedAt, so the subtraction ran microseconds after the stamp and
+    // that zero was then frozen into the cached object and served forever. A field
+    // whose whole job is detecting staleness that can never report staleness is
+    // worse than no field - anyone testing `ageSeconds < 300` would get a permanent
+    // yes. An absolute instant can be cached; an age cannot.
+    receivedAt: (() => {
+      const stamps = accounts.map(a => a && a.receivedAt).filter(Boolean)
+        .map(t => new Date(t).getTime()).filter(n => Number.isFinite(n));
+      return stamps.length ? new Date(Math.max(...stamps)).toISOString() : null;
+    })(),
   };
 }
 
@@ -6986,7 +7006,19 @@ function recomputeRiskStatus() {
 //
 // ANY COMPONENT THAT CAN PLACE AN ORDER MUST CHECK BOTH AND FAIL CLOSED ON EITHER.
 // tasks/fvg_executor.py trading_halted() is the reference implementation.
-app.get("/api/risk-status",  (_, res) => res.json(riskStatus));
+app.get("/api/risk-status",  (_, res) => {
+  // ageSeconds is computed HERE, per request, because an age is only true at the
+  // instant it is taken. receivedAt is the cached absolute stamp; this turns it into
+  // the number a consumer actually wants without either of them being able to go
+  // stale in the cache. Null, never 0, when nothing has ever reported.
+  const stampedAt = riskStatus.receivedAt ? new Date(riskStatus.receivedAt).getTime() : null;
+  res.json({
+    ...riskStatus,
+    ageSeconds: Number.isFinite(stampedAt) && stampedAt
+      ? Math.round((Date.now() - stampedAt) / 1000)
+      : null,
+  });
+});
 
 // WRITE PATH IS LOOPBACK-ONLY. GET stays open - the dashboard reads it.
 //
@@ -7014,7 +7046,20 @@ app.get("/api/risk-status",  (_, res) => res.json(riskStatus));
 // says so instead of going quietly stale.
 app.post("/api/risk-status", requireLocalOnly, (req, res) => {
   const account = req.body?.account || "default";
-  riskStatusByAccount[account] = { ...riskStatusByAccount[account], ...req.body };
+  riskStatusByAccount[account] = {
+    ...riskStatusByAccount[account],
+    ...req.body,
+    // SERVER-SIDE FRESHNESS, stamped here and nowhere else.
+    //
+    // Every timestamp in this payload used to come from the BRIDGE - breakerDay,
+    // lastCountedClose - so all of them freeze together with everything else the
+    // bridge stopped sending. A consumer could not tell a live "halted: false" from
+    // one frozen days ago, and tasks/fvg_executor.py:236-243 reads exactly that field
+    // and refuses only on _error, so a frozen false parses fine and it would trade
+    // straight through a real breaker trip. This is the field that makes that
+    // detectable. OBSERVABILITY ONLY - it blocks nothing and refuses nothing.
+    receivedAt: new Date().toISOString(),
+  };
   recomputeRiskStatus();
   if (riskStatus.halted) {
     console.log(`[risk] CIRCUIT BREAKER ACTIVE: ${riskStatus.haltReason}`);
@@ -12464,6 +12509,89 @@ function checkTradingSilence() {
  * share a gate: peer-silence needs PEER_HEARTBEAT_EXPECT, trading-silence needs
  * nothing but this box's own bridge list.
  */
+// ── RISK-STATUS STALENESS — a frozen breaker reads exactly like a calm one ──
+//
+// The circuit-breaker state on every surface comes from POST /api/risk-status. If
+// that POST stops arriving, `halted` keeps its last value forever and nothing says
+// so: the bridge cannot see a 403 or a connection error (both call sites are
+// `except Exception: pass`, "reporting is telemetry, never a reason to interrupt
+// trading"), and bridge liveness is watched on DIFFERENT routes (/api/mt5/health,
+// /api/mt5/positions), so the bridge can look perfectly healthy while this one
+// field rots.
+//
+// That matters because tasks/fvg_executor.py:236-243 reads `halted` from the GET and
+// refuses only on `_error`. A frozen `halted: false` parses fine, so the executor
+// would trade straight through a genuine breaker trip - FAIL-OPEN.
+//
+// THIS DOES NOT CLOSE THAT. It makes it visible. Nothing here refuses a trade,
+// changes a gate or touches the firing set; making the executor fail-closed on a
+// stale read is an operator decision, not a repair, and it is deliberately not
+// taken here. This only pages, once per episode, exactly like the trading-silence
+// watcher above.
+const RISK_STALE_MS       = 20 * 60 * 1000;   // > the bridge's own report cadence
+const RISK_STALE_CHECK_MS = 5 * 60 * 1000;
+const RISK_STALE_GRACE_MS = 12 * 60 * 1000;   // same cold-start grace as the pager
+let riskStaleAlerted = false;
+
+function checkRiskStatusStaleness() {
+  try {
+    if (process.uptime() * 1000 < RISK_STALE_GRACE_MS) return;
+
+    const stamps = Object.values(riskStatusByAccount || {})
+      .map(a => a && a.receivedAt).filter(Boolean)
+      .map(t => new Date(t).getTime()).filter(n => Number.isFinite(n));
+
+    // NEVER REPORTED IS ALSO STALE, once a bridge is expected and the grace is past.
+    //
+    // A first draft returned silently whenever no account had ever stamped, which is
+    // the pre-fix form of a bug this file has already closed TWICE - at :6584 for
+    // /api/mt5/health ("an account that has STILL never reported in is exactly as
+    // broken as one that connected once and went stale") and at the reboot blind
+    // spot in checkTradingSilence. riskStatusByAccount is in-memory with no loader,
+    // so a restart empties it; if the POST is then refused or never arrives, stamps
+    // stays empty and the silent return would hide exactly the case this watcher
+    // exists for - while /api/mt5/positions keeps flowing, so the pager stays happy
+    // and nothing else notices. The durable expected-account list is what makes
+    // "never" distinguishable from "nothing expected here".
+    const expected = expectedMt5Accounts();
+    const neverReported = stamps.length === 0;
+    if (neverReported && !expected.length) return;   // nothing expected: nothing to report
+
+    const ageMs  = neverReported ? null : Date.now() - Math.max(...stamps);
+    const stale  = neverReported || ageMs > RISK_STALE_MS;
+    const chatId = peerAlertChatId();
+
+    if (stale && !riskStaleAlerted) {
+      riskStaleAlerted = true;
+      const howLong = neverReported
+        ? `has not reported at all since this server started`
+        : `has not reported for ${Math.round(ageMs / 60000)} minutes`;
+      console.error(`[risk] RISK-STATUS STALE: ${howLong} - `
+        + `halted=${riskStatus.halted} is frozen at its last value`);
+      if (chatId) sendTelegram(chatId,
+        `RISK STATE IS FROZEN - /api/risk-status ${howLong}.
+
+`
+        + `The circuit-breaker state shown everywhere is stuck at its last value `
+        + `(halted=${riskStatus.halted}). It is NOT a live reading. An executor that `
+        + `trusts it could trade through a real breaker trip, so treat the breaker as `
+        + `UNKNOWN until this clears.`
+        + (neverReported
+            ? ` Expected account(s): ${expected.join(", ")}. Nothing has posted since `
+              + `this server started - check the bridge, and check the server log for `
+              + `a [guard] line refusing it.`
+            : "")).catch(() => {});
+    } else if (!stale && riskStaleAlerted) {
+      riskStaleAlerted = false;
+      console.log("[risk] RISK-STATUS RECOVERED - reports are arriving again");
+      if (chatId) sendTelegram(chatId,
+        "Risk-status reports are arriving again - the breaker state is live.").catch(() => {});
+    }
+  } catch (e) {
+    console.error("[risk] staleness check failed:", e?.message || e);
+  }
+}
+
 function startTradingSilenceWatch() {
   const watching = expectedMt5Accounts().join(",");
   if (!TELEGRAM_TOKEN || !peerAlertChatId()) {
@@ -12475,6 +12603,11 @@ function startTradingSilenceWatch() {
       + `startup grace ${TRADING_STARTUP_GRACE_MS / 60000}m.`);
   }
   setInterval(checkTradingSilence, TRADING_CHECK_MS).unref?.();
+
+  // Armed here so it shares the pager's fate: if the pager is running, this is too.
+  console.log(`[risk] Risk-status staleness watch armed - alarm at `
+    + `${RISK_STALE_MS / 60000}m, checking every ${RISK_STALE_CHECK_MS / 60000}m.`);
+  setInterval(checkRiskStatusStaleness, RISK_STALE_CHECK_MS).unref?.();
 }
 
 

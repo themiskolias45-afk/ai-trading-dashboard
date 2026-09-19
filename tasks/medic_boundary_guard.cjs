@@ -307,6 +307,66 @@ function readCycleState() {
 function writeCycleState(st) {
   try { fs.writeFileSync(CYCLE_STATE, JSON.stringify(st, null, 2)); } catch (_) {}
 }
+// ── PILOT-001 WATCH — the path to fixing calibration, watched ───────────────
+//
+// dashboard/i40-pilot-001.json is a CHARTER, not a data file: it fixes the
+// hypothesis, the primary metric, the target sample and the clock BEFORE the pilot
+// runs. It holds no observations, so "is it collecting?" cannot be answered by
+// reading it - the data is the closed journal, and the question is whether the 85%+
+// confidence tier is reaching n>=37 fast enough to land inside the 365-day stop.
+//
+// Nothing watched that until now. A pilot with a 294-day projection and a 365-day
+// hard stop, and no reader of its own rate, expires unproven and nobody notices
+// until the deadline. This rides on the existing 2-hourly cycle rather than adding
+// a scheduled task, because the surface freeze forbids new files and a second timer
+// would pay the boot cost twice for one number.
+//
+// REPORTING ONLY. It reads the journal, prints a line and may page. It changes no
+// threshold, opens no order and cannot touch the firing set.
+const PILOT_TARGET_N   = 37;    // charter minimumViableTarget
+const PILOT_HARD_STOP  = 365;   // charter timebox.hardStop, days
+const PILOT_WARN_DAYS  = 330;   // page when the projection crowds the stop
+
+async function pilotStatus() {
+  const charterPath = path.join(ROOT, "dashboard", "i40-pilot-001.json");
+  let charter = null;
+  try { charter = JSON.parse(fs.readFileSync(charterPath, "utf8")); }
+  catch (e) { return { error: "charter unreadable: " + (e.message || e) }; }
+  if (charter.status !== "PRE-REGISTERED" && charter.status !== "RUNNING") {
+    return { skipped: "charter status is " + charter.status };
+  }
+
+  const j = await getJson("/api/journal?limit=500");
+  if (j && j._error) return { error: "journal: " + j._error };
+  const rows = Array.isArray(j) ? j : (j.trades || j.journal || []);
+  const closed = rows.filter(r => String(r && r.status || "").toUpperCase() === "CLOSED");
+  const conf = r => (typeof r.confidence === "number" ? r.confidence : null);
+  const hi = closed.filter(r => conf(r) !== null && conf(r) >= 85);
+
+  // Rate measured over the pilot's own elapsed time, not over all history - the
+  // charter's projection assumes the CURRENT rate holds, so that is what to check.
+  const startedAt = Date.parse(charter.preRegisteredAt || "");
+  const elapsedDays = Number.isFinite(startedAt)
+    ? Math.max(1, (Date.now() - startedAt) / 86400000) : null;
+  const sinceStart = Number.isFinite(startedAt)
+    ? hi.filter(r => Date.parse(r.closeTime || r.openTime || 0) >= startedAt).length : null;
+
+  const rate = (elapsedDays && sinceStart !== null && sinceStart > 0)
+    ? sinceStart / elapsedDays : null;
+  const remaining = Math.max(0, PILOT_TARGET_N - hi.length);
+  const projectedDays = rate ? Math.round(remaining / rate) : null;
+
+  return {
+    n: hi.length, target: PILOT_TARGET_N, remaining,
+    elapsedDays: elapsedDays ? Math.round(elapsedDays * 10) / 10 : null,
+    sinceStart, ratePerDay: rate ? Math.round(rate * 1000) / 1000 : null,
+    projectedDays, hardStop: PILOT_HARD_STOP,
+    // NULL when the rate cannot be computed. A pilot with no fills since it started
+    // has an UNKNOWN projection, not an infinite one, and must not read as "fine".
+    threatensStop: projectedDays === null ? null : projectedDays > PILOT_WARN_DAYS,
+  };
+}
+
 function clog(line) {
   const stamped = "[" + new Date().toISOString() + "] " + line;
   console.log(stamped);
@@ -431,6 +491,68 @@ async function runCycle() {
       + "after-snapshot failed, so nothing confirms the firing set was left intact. "
       + "Not a breach, and not a pass either. The next cycle re-checks.");
   }
+
+  // -- PILOT-001, AFTER every safety alert has had its turn --------------------
+  //
+  // THIS BLOCK USED TO SIT ABOVE THE BREACH HALT, and that was the defect. An
+  // unguarded `await pilotStatus()` ran before `haltLoop()`, and pilotStatus has
+  // throw paths outside its own try blocks - a charter whose content is the literal
+  // `null`, or a 200 whose body is `null`, both reach a property read on null.
+  // main() is `process.exit(await runCycle())` with no .catch, so on node 24 that
+  // rejection is a hard crash exiting 1 - which is THIS script's own code for
+  // BREACH. On a genuinely breaching cycle the loop would not have been halted, no
+  // BOUNDARY BREACH page would have gone out, and the caller would still have been
+  // told a breach happened. A planning metric must never sit between detecting a
+  // breach and acting on it.
+  //
+  // It is also below guardUnverified now: that message says nothing confirms the
+  // firing set survived, and a slow pilot must not be allowed to swallow it.
+  try {
+    const pilot = await pilotStatus();
+    let pilotLine;
+    if (pilot.error)        pilotLine = "PILOT-001 UNREADABLE: " + pilot.error;
+    else if (pilot.skipped) pilotLine = "PILOT-001 " + pilot.skipped;
+    else {
+      pilotLine = "PILOT-001 85%+ tier n=" + pilot.n + "/" + pilot.target
+        + " (need " + pilot.remaining + " more), rate "
+        + (pilot.ratePerDay === null ? "UNKNOWN - no qualifying fill since pre-registration"
+                                     : pilot.ratePerDay + "/day")
+        + ", projection "
+        + (pilot.projectedDays === null
+            ? "UNKNOWN"
+            : pilot.projectedDays + "d from the " + pilot.remaining + " still needed"
+              + " (not the charter's frozen 294d, which ignores the " + pilot.n + " banked)")
+        + " against a " + pilot.hardStop + "d hard stop";
+    }
+    clog(pilotLine);
+
+    // DO NOT PAGE A YOUNG PILOT. At the charter's own 0.125 fills/day the expected
+    // wait for the FIRST qualifying fill is 8 days, with roughly a 37% chance of
+    // still being at zero on day 8. Paging from day zero would put a planning note
+    // on the same channel as BOUNDARY BREACH every day for a week, which is exactly
+    // how an operator learns to ignore that channel.
+    const EXPECTED_FIRST_FILL_DAYS = 8;   // 1 / 0.125, the charter's own arrival rate
+    const rateUnknownTooLong = pilot.ratePerDay === null
+      && typeof pilot.elapsedDays === "number"
+      && pilot.elapsedDays > EXPECTED_FIRST_FILL_DAYS;
+
+    if (pilot.threatensStop === true || rateUnknownTooLong) {
+      const st0 = readCycleState();
+      const today0 = new Date().toISOString().slice(0, 10);
+      if (st0.lastPilotWarnDay !== today0) {
+        st0.lastPilotWarnDay = today0;
+        writeCycleState(st0);
+        telegram("JARVIS PILOT-001 AT RISK - " + pilotLine
+          + "\n\nThe calibration question cannot be settled without this "
+          + "sample. If the rate does not recover the pilot expires unproven at the "
+          + "hard stop, and the answer stays unknown rather than becoming 'no'.");
+      }
+    }
+  } catch (e) {
+    // A planning metric must never be the reason a cycle fails.
+    clog("PILOT-001 tracker failed (non-fatal): " + (e && e.message ? e.message : e));
+  }
+
 
   // ONCE-DAILY HEARTBEAT, so silence is never ambiguous.
   const st = readCycleState();
