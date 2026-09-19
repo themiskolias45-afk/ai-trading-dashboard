@@ -1,8 +1,26 @@
 # SessionStart quality gate -- verifies the environment is ready
 # Runs async so it never blocks startup, but logs issues clearly.
 
-$proj = 'C:\Users\User\ai-trading-dashboard'
+# THE REPO ROOT, DERIVED - never hardcoded again.
+#
+# This was 'C:\Users\User\ai-trading-dashboard', which is the LAPTOP's path and does
+# not exist on the VPS. Measured 2026-09-19 on the box that trades: every `git -C
+# $proj` and every Test-Path below silently failed, so this gate reported NOTHING
+# about 460 uncommitted files, the branch, or tracked secrets - while emitting one
+# FALSE warning ("no python on this box will run") because the resolver path was
+# missing too. A boot gate that cannot find its own repo is worse than no gate: it
+# prints a clean-looking run.
+#
+# This file lives in <repo>\tasks\hooks, so the root is two levels up. Same pattern
+# tasks\bridge_tags.ps1 already uses, and for the same reason.
+$proj = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $warn = @()
+
+# PROVE the derivation landed on a real repo rather than checking nothing. Silence is
+# the failure this edit exists to remove, so a bad root must SHOUT rather than pass.
+if (-not (Test-Path (Join-Path $proj '.git'))) {
+    Write-Host "  ! STARTUP-CHECK: repo root not found at '$proj' - every check below is meaningless" -ForegroundColor Red
+}
 
 # 1. Node available
 $nodeVer = node --version 2>$null
