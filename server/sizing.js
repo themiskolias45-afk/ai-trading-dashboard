@@ -127,8 +127,30 @@ function calcSize(opts) {
     return { lots: 0, riskPct: 0, riskAmount: 0, reasoning: 'Signal missing entry, stop, or confidence' };
   }
 
-  let riskPct = BASE_RISK_PCT;
-  const reasoningParts = ['Base risk: 1%'];
+  // THE CONFIGURED BUDGET, NOT A HARDCODED 1%.
+  //
+  // This read BASE_RISK_PCT directly and never consulted riskPercent at all, while
+  // validateTrade twenty lines below DID - two different risk figures in one module.
+  // calcSize has no caller on the live path today (measured 2026-09-19: only
+  // sizing.test.js requires it), which is the only reason it has not mis-sized a real
+  // order. Left alone it is a 6.7x footgun for whoever wires it up next: 1% against a
+  // configured 0.15%.
+  //
+  // resolveRiskPct returns BASE_RISK_PCT for an absent, zero or unparseable value, so
+  // a caller that passes nothing gets exactly the behaviour this had before.
+  //
+  // THIS DOES NOT MAKE calcSize SAFE TO WIRE UP. It removes the 6.7x and leaves a 2x.
+  // The Kelly block below clamps to preKellyRisk * 2.0, while calcKelly returns an
+  // ABSOLUTE fraction floored at MIN_KELLY = 0.005 that is never rescaled to the
+  // configured base. So for any riskPercent <= 0.25 the upper clamp binds
+  // unconditionally and Kelly stops carrying information: measured 2026-09-19 at
+  // riskPercent 0.15, a winning book (WR 0.55, 2R) and a losing one (WR 0.30, 1R)
+  // both size at exactly 2.000x base, and the "scaled DOWN when cold" half of that
+  // branch can no longer execute. The reasoning string will read "scaled UP" forever.
+  // Left alone deliberately: re-scaling a Kelly clamp is a money decision, not one of
+  // the three permitted repairs. Anyone giving calcSize a caller must settle it first.
+  let riskPct = resolveRiskPct(opts.riskPercent);
+  const reasoningParts = [`Base risk: ${(riskPct * 100).toFixed(4)}%`];
 
   let confidenceMultiplier = 1.0;
   if (confidence >= 90) {

@@ -68,7 +68,18 @@ except ImportError:
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 SERVER_URL     = os.environ.get("SMARTENTRY_URL", "http://localhost:3001")
-RISK_PERCENT   = float(os.environ.get("RISK_PERCENT", "1.0"))   # % of balance per trade
+RISK_PERCENT   = float(os.environ.get("RISK_PERCENT", "1.0"))   # SEED ONLY - see below
+# RISK_PERCENT is the SEED and the last resort, no longer the live figure.
+# The live per-trade budget is strategy_settings["riskPercent"], pulled from the
+# server each cycle. Measured 2026-09-19: this env default is 1.0% against a
+# configured 0.15%, so every order sized on the fallback path risked 6.7x target
+# whenever the server sent no budget. It is kept as the cold-start value so a box
+# that has never reached the server behaves exactly as it did before.
+RISK_PERCENT_FLOOR = 0.01   # server STRATEGY_LIMITS min for riskPercent (index.js:1549)
+RISK_PERCENT_CEILING = 3.0  # and its max. Both ends, because a one-sided clamp in the
+# one function whose job is sanitising is how +inf gets through: json.loads accepts a
+# literal Infinity, `inf > 0` is True, and round(inf/step) raises OverflowError inside
+# the poll loop. Clamping can only REDUCE size, so it cannot block or inflate a trade.
 MAX_SPREAD_PTS = int(os.environ.get("MAX_SPREAD",    "50"))      # reject trade if spread > this
 
 
@@ -1302,6 +1313,29 @@ def ensure_mt5_connection():
     return False
 
 
+def effective_risk_percent():
+    """The per-trade risk budget actually in force, in PERCENT of balance.
+
+    THE SETTING, NOT THE ENV. strategy_settings["riskPercent"] is what the operator
+    configured and what server/sizing.js sizes against; RISK_PERCENT is only the
+    cold-start seed. Measured 2026-09-19 across 44 closed trades, the env default of
+    1.0% is 6.7x the configured 0.15%, so any order that fell back to the env was
+    silently risking almost seven times target.
+
+    CANNOT RETURN ZERO. A zero, negative, missing or unparseable setting falls back to
+    RISK_PERCENT rather than to nothing - get_lot_size divides by this, and a zero
+    budget would size every order to the broker minimum, which is an outage wearing a
+    lot size. The floor mirrors the server's own STRATEGY_LIMITS minimum.
+    """
+    try:
+        pct = float(strategy_settings.get("riskPercent", RISK_PERCENT))
+    except (TypeError, ValueError):
+        pct = RISK_PERCENT
+    if not pct > 0:
+        pct = RISK_PERCENT
+    return min(max(pct, RISK_PERCENT_FLOOR), RISK_PERCENT_CEILING)
+
+
 def get_lot_size(symbol, entry, stop, risk_amount=None):
     """Convert a dollar risk budget into broker lots.
 
@@ -1318,7 +1352,7 @@ def get_lot_size(symbol, entry, stop, risk_amount=None):
 
     balance      = acc.balance
     if risk_amount is None:
-        risk_amount = balance * RISK_PERCENT / 100
+        risk_amount = balance * effective_risk_percent() / 100
     stop_distance = abs(entry - stop)
     if stop_distance == 0:
         return MIN_LOT.get(symbol, 0.01)
@@ -1542,6 +1576,13 @@ strategy_settings = {
     "maxTradesPerDay": 5,
     "fixedLotSize": 0.0,   # 0 = size from risk; above 0 = always trade exactly this
     "maxLotSize": 10.0,    # hard ceiling regardless of what the risk maths asks for
+    # Per-trade risk budget in PERCENT of balance. Seeded from the env so a bridge
+    # that has never reached the server keeps its historical behaviour, then
+    # overwritten by the server value on the first refresh. MUST also appear in the
+    # copy loop in refresh_strategy_settings - see the maxNotionalPct note above,
+    # which is the same trap: a key in this dict but not in that loop is a control
+    # that permanently runs its default.
+    "riskPercent": RISK_PERCENT,
     # Notional ceiling as a PERCENT of balance, applied per symbol in get_lot_size.
     # It must be in this dict AND in the copy loop in refresh_strategy_settings, or the
     # `.get(..., 25)` below it silently returns 25 forever and the dashboard control is
@@ -1588,7 +1629,7 @@ def refresh_strategy_settings():
         # the setting without adding it here would have shipped an adjustable risk control
         # that permanently ran its hardcoded default and whose "off" position did not turn
         # it off.
-        for name in ("fixedLotSize", "maxLotSize", "maxNotionalPct"):
+        for name in ("fixedLotSize", "maxLotSize", "maxNotionalPct", "riskPercent"):
             if isinstance(data.get(name), (int, float)):
                 strategy_settings[name] = float(data[name])
         if data.get("minStrength") in ("MODERATE", "STRONG"):
@@ -2006,9 +2047,13 @@ def prompt_confirm(sig, symbol):
     print(f"  MT5 sym:  {symbol}")
     acc = mt5.account_info()
     if acc:
+        # DISPLAY ONLY - this places nothing. It printed RISK_PERCENT, the env seed,
+        # while live orders size on strategy_settings["riskPercent"], so the console
+        # showed ~6.7x the size actually traded (1.0% vs 0.15%, measured 2026-09-19).
+        risk_pct = effective_risk_percent()
         lots = get_lot_size(symbol, entry, stop)
-        risk_usd = acc.balance * RISK_PERCENT / 100
-        print(f"  Lots:     {lots}  (${risk_usd:.2f} risk at {RISK_PERCENT}% of ${acc.balance:.2f})")
+        risk_usd = acc.balance * risk_pct / 100
+        print(f"  Lots:     {lots}  (${risk_usd:.2f} risk at {risk_pct}% of ${acc.balance:.2f})")
     print(f"{color}{'='*60}{RESET}")
 
     if AUTO_MODE:
@@ -2302,13 +2347,20 @@ def report_risk_status():
             "lastHaltAt":         last_halt_at or None,
             "lastReleaseAt":      last_release_at or None,
             "config": {
-                # NOT the risk that sizes a normal trade. RISK_PERCENT is this bridge's
-                # FALLBACK, used by get_lot_size only when the server's risk engine
-                # passes no explicit budget (risk_amount is None, :1213-1214). The live
-                # figure is strategy_settings.riskPercent, which server/sizing.js:371
-                # reads and which is 0.15 today - so publishing this bare as
-                # "riskPercent" made /api/risk-status and /api/strategy-settings
-                # disagree 6.7x under the same field name. Measured 2026-09-07.
+                # NOT the risk that sizes a normal trade. RISK_PERCENT is this
+                # bridge's cold-start SEED. The live figure is
+                # strategy_settings.riskPercent (0.15 today), which server/sizing.js:371
+                # reads - so publishing this bare as "riskPercent" made
+                # /api/risk-status and /api/strategy-settings disagree 6.7x under the
+                # same field name. Measured 2026-09-07.
+                #
+                # CORRECTED 2026-09-19: this used to say RISK_PERCENT was the fallback
+                # "used by get_lot_size when the server passes no budget" and cited
+                # :1213-1214. Both are now wrong. get_lot_size calls
+                # effective_risk_percent() (:1351), which reads the SETTING and uses
+                # RISK_PERCENT only as a last resort; and the line reference was stale
+                # long before that.
+                #
                 # Value deliberately unchanged: closing that gap is a MONEY decision,
                 # not a reporting one. Named here so nobody reads 1 as the live risk.
                 "riskPercent":     RISK_PERCENT,
@@ -3248,8 +3300,9 @@ def track_closed_positions():
                 # used to hardcode these numbers in HTML, so changing the env vars
                 # left the dashboard confidently displaying the old ones.
                 "config": {
-                    # Same caveat as the risk-status POST above: this is the FALLBACK,
-                    # not the live risk. See get_lot_size :1213-1214.
+                    # Same caveat as the risk-status POST above: this is the cold-start
+                    # SEED, not the live risk. See effective_risk_percent (:1312) and
+                    # its caller in get_lot_size (:1351).
                     "riskPercent":      RISK_PERCENT,
                     "riskPercentIsFallbackOnly": True,
                     "riskPercentNote":  "bridge fallback, used only when the server sends no budget; live risk is strategy_settings.riskPercent",
@@ -3786,7 +3839,13 @@ def reconcile_open_trades():
 def main():
     print(f"\n{CYAN}{BOLD}SmartEntry MT5 Bridge v1{RESET}")
     print(f"Mode: {'AUTO (min strength: ' + strategy_settings['minStrength'] + ')' if AUTO_MODE else 'SEMI-AUTO (confirm each trade)'}")
-    print(f"Risk per trade: {RISK_PERCENT}%  |  Max spread: {MAX_SPREAD_PTS} pts")
+    # The banner printed RISK_PERCENT, which is the cold-start seed and not the live
+    # figure - the same defect fixed in the signal display at :2050. At startup the
+    # first refresh has usually not landed, so this legitimately shows the seed;
+    # it now says WHICH number it is showing instead of implying it is the setting.
+    _startup_risk = effective_risk_percent()
+    _risk_src = "server" if strategy_settings.get("riskPercent") != RISK_PERCENT else "seed, awaiting first refresh"
+    print(f"Risk per trade: {_startup_risk}% ({_risk_src})  |  Max spread: {MAX_SPREAD_PTS} pts")
     print(f"Server: {SERVER_URL}")
     print(f"Poll interval: {POLL_INTERVAL}s")
     if ACCOUNT_TAG:

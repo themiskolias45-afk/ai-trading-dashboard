@@ -789,6 +789,76 @@ const malformedHeld = validateTrade(
 assert(malformedHeld.approved === true, 'validateTrade ignores null/empty positions in the duplicate scan (got "' + malformedHeld.reason + '")');
 
 // ---------------------------------------------------------------------------
+// riskPercent — the configured per-trade budget (repair #3, 2026-09-19)
+//
+// WHY THESE EXIST. Before this block the suite had ZERO assertions passing
+// riskPercent to anything: `grep -n riskPercent server/sizing.test.js` returned
+// nothing, while the live path (server/index.js:14616 -> validateTrade) has passed
+// it since the key shipped. The 205 tests that passed both before and after the
+// repair proved only that the ABSENT-key path was unchanged — real backward-
+// compatibility evidence, and no coverage at all of the parameter that sizes money.
+//
+// validateTrade is the LIVE path: the bridge calls /api/validate-trade, takes
+// suggestedSize, converts it back to a dollar budget (mt5_bridge.py:1522) and sizes
+// every order from it. calcSize is covered too, but it has no caller — see the
+// Kelly warning in sizing.js before wiring it up.
+// ---------------------------------------------------------------------------
+
+const RISK_SIGNAL = Object.assign({}, NORMAL_SIGNAL);
+const riskOpts = (riskPercent) => ({ valuePerPoint: UNIT_POINT_VALUE, riskPercent });
+
+// The setting is honoured, and honoured PROPORTIONALLY. 0.15% of 10,000 is $15
+// against a 2000 stop at unit point value = 0.0075 lots.
+const vtConfigured = validateTrade(RISK_SIGNAL, NORMAL_BALANCE, [], riskOpts(0.15));
+assert(vtConfigured.approved === true, 'validateTrade approves with riskPercent 0.15 (got "' + vtConfigured.reason + '")');
+assert(nearly(vtConfigured.suggestedSize, 0.0075), 'validateTrade sizes 0.15% of $10,000 = $15 / 2000 = 0.0075 lots (got ' + vtConfigured.suggestedSize + ')');
+
+// Absent key reproduces the historical 1%. This is the assertion that would have
+// caught the repair if it had changed the default path.
+const vtAbsent = validateTrade(RISK_SIGNAL, NORMAL_BALANCE, [], { valuePerPoint: UNIT_POINT_VALUE });
+assert(nearly(vtAbsent.suggestedSize, 0.05), 'validateTrade with no riskPercent still sizes the historical 1% = 0.05 lots (got ' + vtAbsent.suggestedSize + ')');
+
+// The ratio is the whole point of the repair: 1.0% is 6.67x 0.15%.
+assert(nearly(vtAbsent.suggestedSize / vtConfigured.suggestedSize, 1 / 0.15),
+  'validateTrade 1.0% sizes exactly 6.67x the 0.15% budget (got ' + (vtAbsent.suggestedSize / vtConfigured.suggestedSize) + ')');
+
+// FLOOR — a zero, negative or unparseable setting must fall back, never to zero.
+// A zero budget is a trading outage wearing a lot size.
+for (const bad of [0, -5, null, undefined, NaN, 'abc', {}, []]) {
+  const vt = validateTrade(RISK_SIGNAL, NORMAL_BALANCE, [], riskOpts(bad));
+  assert(vt.approved === true, 'validateTrade still APPROVES with riskPercent ' + JSON.stringify(bad) + ' — sizing must never gate the trade');
+  assert(isCleanNumber(vt.suggestedSize) && vt.suggestedSize > 0,
+    'validateTrade never sizes to 0 on riskPercent ' + JSON.stringify(bad) + ' (got ' + vt.suggestedSize + ')');
+  assert(nearly(vt.suggestedSize, 0.05), 'validateTrade falls back to 1% on riskPercent ' + JSON.stringify(bad) + ' (got ' + vt.suggestedSize + ')');
+}
+
+// A tiny but VALID setting is honoured down to the 0.01% floor, not rounded away.
+const vtTiny = validateTrade(RISK_SIGNAL, NORMAL_BALANCE, [], riskOpts(0.01));
+assert(nearly(vtTiny.suggestedSize, 0.0005), 'validateTrade honours riskPercent 0.01 (the floor) = 0.0005 lots (got ' + vtTiny.suggestedSize + ')');
+const vtBelowFloor = validateTrade(RISK_SIGNAL, NORMAL_BALANCE, [], riskOpts(0.0001));
+assert(vtBelowFloor.suggestedSize > 0, 'validateTrade clamps a sub-floor riskPercent UP rather than to zero (got ' + vtBelowFloor.suggestedSize + ')');
+
+// CEILING — an absurd setting is capped at MAX_SINGLE_TRADE_RISK, never passed through.
+const vtHuge = validateTrade(RISK_SIGNAL, NORMAL_BALANCE, [], riskOpts(999));
+assert(nearly(vtHuge.suggestedSize, 0.15), 'validateTrade caps riskPercent 999 at the 3% single-trade ceiling = 0.15 lots (got ' + vtHuge.suggestedSize + ')');
+const vtInf = validateTrade(RISK_SIGNAL, NORMAL_BALANCE, [], riskOpts(Infinity));
+assert(isCleanNumber(vtInf.suggestedSize) && vtInf.suggestedSize <= 0.15,
+  'validateTrade does not let Infinity through the ceiling (got ' + vtInf.suggestedSize + ')');
+
+// Sizing must stay monotonic in the setting — a larger budget is never a smaller size.
+const ladder = [0.01, 0.05, 0.15, 0.5, 1, 2, 3].map(
+  (p) => validateTrade(RISK_SIGNAL, NORMAL_BALANCE, [], riskOpts(p)).suggestedSize);
+assert(ladder.every((v, i) => i === 0 || v >= ladder[i - 1]),
+  'validateTrade suggestedSize is monotonic non-decreasing in riskPercent (got ' + JSON.stringify(ladder) + ')');
+
+// calcSize reads the same setting through the same helper.
+const csConfigured = calcSize({ accountBalance: NORMAL_BALANCE, signal: RISK_SIGNAL, valuePerPoint: UNIT_POINT_VALUE, riskPercent: 0.15 });
+assert(nearly(csConfigured.riskPct, 0.001875), 'calcSize applies the 1.25x confidence multiplier to riskPercent 0.15 (0.15% -> 0.1875%) (got ' + csConfigured.riskPct + ')');
+const csAbsent = calcSize({ accountBalance: NORMAL_BALANCE, signal: RISK_SIGNAL, valuePerPoint: UNIT_POINT_VALUE });
+assert(nearly(csAbsent.riskPct, 0.0125), 'calcSize with no riskPercent is unchanged at 1% x 1.25 = 1.25% (got ' + csAbsent.riskPct + ')');
+assert(csConfigured.lots > 0 && csAbsent.lots > 0, 'calcSize never returns zero lots for a valid signal on either path');
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 const passed = total - failures;
